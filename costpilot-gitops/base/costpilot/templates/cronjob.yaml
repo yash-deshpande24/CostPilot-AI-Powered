@@ -1,0 +1,17 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: costpilot-cost-scan
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: costpilot-worker
+          containers:
+            - name: scan
+              image: "{{ .Values.image.registry }}/costpilot-worker:{{ .Values.image.tag }}"
+              command: ["node", "-e", "console.log('Implement scheduled scan handler')"]

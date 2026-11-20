@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: costpilot
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - env: dev
+          - env: staging
+          - env: prod
+  template:
+    metadata:
+      name: 'costpilot-{{env}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/YOUR_ORG/costpilot-gitops.git
+        targetRevision: main
+        path: base/costpilot
+        helm:
+          valueFiles:
+            - '../../envs/{{env}}/values.yaml'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: costpilot-{{env}}
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

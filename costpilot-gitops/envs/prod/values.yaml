@@ -1,0 +1,10 @@
+namespace: costpilot-prod
+api:
+  replicas: 3
+worker:
+  replicas: 2
+frontend:
+  replicas: 3
+ingress:
+  enabled: true
+  host: costpilot.example.com

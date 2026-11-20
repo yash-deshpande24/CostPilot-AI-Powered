@@ -1,0 +1,22 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { env } from './config/env.js';
+import authRoutes from './routes/auth.routes.js';
+import costsRoutes from './routes/costs.routes.js';
+import recommendationsRoutes from './routes/recommendations.routes.js';
+import chatRoutes from './routes/chat.routes.js';
+import { notFound, errorHandler } from './middleware/errorHandler.js';
+
+const app = express();
+app.use(helmet());
+app.use(cors({ origin: env.CORS_ORIGIN.split(',').map((v) => v.trim()) }));
+app.use(express.json({ limit: '1mb' }));
+app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'costpilot-api' }));
+app.use('/api/auth', authRoutes);
+app.use('/api/costs', costsRoutes);
+app.use('/api/recommendations', recommendationsRoutes);
+app.use('/api/chat', chatRoutes);
+app.use(notFound);
+app.use(errorHandler);
+export default app;

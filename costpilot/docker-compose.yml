@@ -1,0 +1,45 @@
+services:
+  api:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://costpilot:costpilot_local_only@db:5432/costpilot?schema=public
+      PORT: 3000
+  worker:
+    build: ./worker
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - api
+    environment:
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL:-}
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: costpilot
+      POSTGRES_PASSWORD: costpilot_local_only
+      POSTGRES_DB: costpilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U costpilot -d costpilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  postgres_data:

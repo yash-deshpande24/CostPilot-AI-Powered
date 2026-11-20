@@ -1,0 +1,48 @@
+pipeline {
+  agent any
+  options { timestamps(); disableConcurrentBuilds() }
+  environment {
+    AWS_REGION = 'ap-south-1'
+    IMAGE_TAG = "${env.GIT_COMMIT}"
+  }
+  stages {
+    stage('Checkout') { steps { checkout scm } }
+    stage('Test API') {
+      steps {
+        dir('backend') {
+          sh 'npm ci'
+          sh 'npm test -- --runInBand'
+        }
+      }
+    }
+    stage('Build images') {
+      steps {
+        sh 'docker build -t $ECR_REGISTRY/costpilot-api:$IMAGE_TAG ./backend'
+        sh 'docker build -t $ECR_REGISTRY/costpilot-worker:$IMAGE_TAG ./worker'
+        sh 'docker build -t $ECR_REGISTRY/costpilot-frontend:$IMAGE_TAG ./frontend'
+      }
+    }
+    stage('Scan images') {
+      steps {
+        sh 'trivy image --exit-code 1 --severity HIGH,CRITICAL $ECR_REGISTRY/costpilot-api:$IMAGE_TAG'
+      }
+    }
+    stage('Push images') {
+      when { branch 'main' }
+      steps {
+        sh 'aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY'
+        sh 'docker push $ECR_REGISTRY/costpilot-api:$IMAGE_TAG'
+        sh 'docker push $ECR_REGISTRY/costpilot-worker:$IMAGE_TAG'
+        sh 'docker push $ECR_REGISTRY/costpilot-frontend:$IMAGE_TAG'
+      }
+    }
+    stage('Promote GitOps') {
+      when { branch 'main' }
+      steps {
+        echo 'Implement promotion by committing immutable image tags/digests to costpilot-gitops.'
+        echo 'Use a narrowly scoped Git credential; do not store tokens in source control.'
+      }
+    }
+  }
+  post { always { sh 'docker logout $ECR_REGISTRY || true' } }
+}

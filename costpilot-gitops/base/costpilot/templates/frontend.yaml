@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: costpilot-frontend
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels: { app: costpilot-frontend }
+  template:
+    metadata:
+      labels: { app: costpilot-frontend }
+    spec:
+      containers:
+        - name: frontend
+          image: "{{ .Values.image.registry }}/costpilot-frontend:{{ .Values.image.tag }}"
+          ports: [{ name: http, containerPort: 80 }]
+          resources: {{- toYaml .Values.frontend.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: costpilot-frontend
+spec:
+  selector: { app: costpilot-frontend }
+  ports: [{ name: http, port: 80, targetPort: http }]

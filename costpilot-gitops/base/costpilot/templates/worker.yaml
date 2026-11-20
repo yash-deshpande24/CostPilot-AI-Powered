@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: costpilot-worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels: { app: costpilot-worker }
+  template:
+    metadata:
+      labels: { app: costpilot-worker }
+    spec:
+      serviceAccountName: costpilot-worker
+      containers:
+        - name: worker
+          image: "{{ .Values.image.registry }}/costpilot-worker:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
+          env:
+            - name: AWS_REGION
+              value: ap-south-1

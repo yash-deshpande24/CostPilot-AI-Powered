@@ -1,0 +1,9 @@
+namespace: costpilot-dev
+api:
+  replicas: 1
+worker:
+  replicas: 1
+frontend:
+  replicas: 1
+ingress:
+  enabled: false

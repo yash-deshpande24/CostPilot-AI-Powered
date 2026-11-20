@@ -1,0 +1,10 @@
+namespace: costpilot-staging
+api:
+  replicas: 2
+worker:
+  replicas: 1
+frontend:
+  replicas: 2
+ingress:
+  enabled: true
+  host: staging.costpilot.example.com
