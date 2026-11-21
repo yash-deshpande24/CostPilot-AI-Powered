@@ -1,0 +1,10 @@
+# Docker Compose merges this file into docker-compose.yml automatically.
+# It passes the Week 2 settings from your .env file to the backend.
+services:
+  backend:
+    environment:
+      COST_SOURCE: ${COST_SOURCE:-mock}
+      CACHE_HOURS: ${CACHE_HOURS:-24}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}

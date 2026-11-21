@@ -5,15 +5,18 @@ import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import costRoutes from './routes/costs.js';
 import recommendationRoutes from './routes/recommendations.js';
+import scanRoutes from './routes/scan.js';
+import { costSource } from './services/costSource.js';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+app.get('/health', (_req, res) => res.json({ status: 'ok', source: costSource() }));
 app.use('/api/auth', authRoutes);
 app.use('/api/costs', costRoutes);
-app.use('/api', recommendationRoutes); // /api/recommendations, /api/scan
+app.use('/api/recommendations', recommendationRoutes);
+app.use('/api/scan', scanRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);
@@ -22,7 +25,9 @@ app.use((err, _req, res, _next) => {
 
 const port = process.env.PORT || 5000;
 connectDB()
-  .then(() => app.listen(port, () => console.log(`API listening on :${port}`)))
+  .then(() =>
+    app.listen(port, () => console.log(`API listening on :${port} (cost source: ${costSource()})`))
+  )
   .catch((e) => {
     console.error('Could not connect to MongoDB:', e.message);
     process.exit(1);

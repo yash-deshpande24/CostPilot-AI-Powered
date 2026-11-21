@@ -1,0 +1,58 @@
+# CostPilot Week 2 smoke test. Run from the project root while the containers are up:
+#   powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test.ps1
+param([string]$Api = "http://localhost:5000")
+
+$script:failed = 0
+function Check($name, $ok, $extra = "") {
+  if ($ok) { Write-Host "PASS  $name $extra" -ForegroundColor Green }
+  else { Write-Host "FAIL  $name $extra" -ForegroundColor Red; $script:failed++ }
+}
+
+try {
+  $health = Invoke-RestMethod "$Api/health"
+  Check "API is up" ($health.status -eq "ok") "(cost source: $($health.source))"
+
+  $email = "smoke$(Get-Random)@test.com"
+  $creds = @{ email = $email; password = "password123" } | ConvertTo-Json
+  $reg = Invoke-RestMethod -Method Post -Uri "$Api/api/auth/register" -ContentType "application/json" -Body $creds
+  Check "Register and receive a token" ([bool]$reg.token)
+  $h = @{ Authorization = "Bearer $($reg.token)" }
+
+  $costs = Invoke-RestMethod -Uri "$Api/api/costs?days=30" -Headers $h
+  Check "Costs returned" ($costs.daily.Count -ge 14) "($($costs.daily.Count) days, source: $($costs.source))"
+  if ($costs.source -eq "mock") {
+    Check "Spike day detected" ($costs.anomalies.Count -ge 1) "($($costs.anomalies.Count) unusual day)"
+  }
+
+  $scan = Invoke-RestMethod -Method Post -Uri "$Api/api/scan" -Headers $h
+  Check "Scan finished with no errors" ($scan.errors.Count -eq 0) "(found $($scan.found), about `$$($scan.totalMonthlySavings) a month)"
+  if ($scan.source -eq "mock") {
+    Check "Scan found the 7 planted items" ($scan.found -eq 7)
+  }
+
+  $recs = Invoke-RestMethod -Uri "$Api/api/recommendations" -Headers $h
+  Check "Recommendations saved" ($recs.count -ge 1) "($($recs.count) items)"
+
+  if ($recs.count -ge 1) {
+    $id = $recs.items[0]._id
+    $dismiss = @{ status = "dismissed" } | ConvertTo-Json
+    Invoke-RestMethod -Method Patch -Uri "$Api/api/recommendations/$id" -Headers $h -ContentType "application/json" -Body $dismiss | Out-Null
+    $after = Invoke-RestMethod -Uri "$Api/api/recommendations" -Headers $h
+    Check "Dismiss removes it from the list" ($after.count -eq $recs.count - 1)
+    $restore = @{ status = "new" } | ConvertTo-Json
+    Invoke-RestMethod -Method Patch -Uri "$Api/api/recommendations/$id" -Headers $h -ContentType "application/json" -Body $restore | Out-Null
+  }
+
+  $blocked = $false
+  try { Invoke-RestMethod -Method Post -Uri "$Api/api/scan" | Out-Null }
+  catch { $blocked = ($_.Exception.Response.StatusCode.value__ -eq 401) }
+  Check "Scan without a token is blocked" $blocked
+}
+catch {
+  Write-Host "ERROR $($_.Exception.Message)" -ForegroundColor Red
+  $script:failed++
+}
+
+Write-Host ""
+if ($script:failed -eq 0) { Write-Host "All checks passed." -ForegroundColor Green }
+else { Write-Host "$($script:failed) check(s) failed." -ForegroundColor Red; exit 1 }

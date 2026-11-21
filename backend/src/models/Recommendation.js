@@ -1,17 +1,24 @@
 import mongoose from 'mongoose';
 
-const recommendationSchema = new mongoose.Schema(
+export const TYPES = ['unattached_ebs', 'unattached_eip', 'idle_ec2'];
+export const STATUSES = ['new', 'pr_opened', 'applied', 'dismissed', 'resolved'];
+
+const schema = new mongoose.Schema(
   {
-    owner: { type: String, required: true, index: true },
-    type: { type: String, required: true },
-    resource: { type: String, required: true },
-    region: { type: String, default: 'us-east-1' },
+    source: { type: String, enum: ['mock', 'aws'], required: true },
+    type: { type: String, enum: TYPES, required: true },
+    resourceId: { type: String, required: true },
+    region: String,
     title: { type: String, required: true },
-    detail: { type: String, default: '' },
-    monthlySavings: { type: Number, required: true },
-    status: { type: String, enum: ['open', 'dismissed'], default: 'open' },
+    detail: String,
+    monthlySavings: { type: Number, default: 0 },
+    status: { type: String, enum: STATUSES, default: 'new' },
+    prUrl: String, // filled in Week 6
+    lastSeenAt: Date,
   },
   { timestamps: true }
 );
 
-export default mongoose.model('Recommendation', recommendationSchema);
+schema.index({ source: 1, type: 1, resourceId: 1 }, { unique: true });
+
+export default mongoose.model('Recommendation', schema);
