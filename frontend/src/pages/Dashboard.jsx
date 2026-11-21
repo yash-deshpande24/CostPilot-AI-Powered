@@ -101,12 +101,12 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
     <div className="app">
       <header className="topbar">
         <div className="brand-group">
-          <strong className="brand">CostPilot</strong>
+          <strong className="brand" style={{ cursor: 'pointer' }} onClick={() => { window.location.hash = 'home'; }}>CostPilot</strong>
           {data && <span className={live ? 'pill live' : 'pill'}>{live ? 'Live AWS data' : 'Sample data'}</span>}
         </div>
         <div className="top-right">
           <nav className="switcher" role="tablist" aria-label="Dashboard views">
-            {VIEWS.map((v) => (
+            {VIEWS.filter((v) => v.id !== 'home').map((v) =>  (
               <button
                 key={v.id}
                 role="tab"

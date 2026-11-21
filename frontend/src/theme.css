@@ -1,0 +1,103 @@
+/* Light theme overrides. Loaded last so they win over backdrop.css and dock.css */
+[data-theme="light"] body {
+  background-color: #eef2f7;
+  background-image:
+    radial-gradient(50rem 30rem at 10% -10%, rgba(91, 79, 214, 0.18), transparent 60%),
+    radial-gradient(40rem 26rem at 95% 5%, rgba(45, 212, 191, 0.20), transparent 60%),
+    radial-gradient(36rem 24rem at 70% 105%, rgba(245, 176, 66, 0.16), transparent 60%);
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  color: #15292c;
+}
+[data-theme="light"] body::after { display: none; }
+[data-theme="light"] main,
+[data-theme="light"] #root { color: #15292c; }
+[data-theme="light"] main a { color: #3b3fc4; }
+
+/* cards and panels */
+[data-theme="light"] [class*="card"],
+[data-theme="light"] [class*="panel"],
+[data-theme="light"] .kpi {
+  background: rgba(255, 255, 255, 0.88) !important;
+  border: 1px solid #d3dcdb !important;
+  color: #15292c !important;
+  box-shadow: 0 10px 30px -18px rgba(20, 40, 70, 0.35);
+}
+
+/* header */
+[data-theme="light"] header,
+[data-theme="light"] nav { color: #15292c; }
+[data-theme="light"] .brand { color: #15292c; }
+[data-theme="light"] .switcher { background: rgba(21, 41, 44, 0.07); }
+[data-theme="light"] .tab { color: #3a4f53; }
+[data-theme="light"] .tab:hover { background: rgba(21, 41, 44, 0.08); }
+[data-theme="light"] .tab.on { background: #5b4fd6; color: #fff; }
+[data-theme="light"] .ghost { color: #15292c; border-color: rgba(21, 41, 44, 0.25); }
+[data-theme="light"] .ghost:hover { background: rgba(21, 41, 44, 0.06); }
+
+/* text colours that were hard-coded for dark */
+[data-theme="light"] .muted,
+[data-theme="light"] .tight,
+[data-theme="light"] .kpi-label,
+[data-theme="light"] .legend,
+[data-theme="light"] .cp-stat-label,
+[data-theme="light"] .cp-tile-text,
+[data-theme="light"] .cp-home-hero p,
+[data-theme="light"] .heat-axis,
+[data-theme="light"] .cal-head,
+[data-theme="light"] .kpi-num .per { color: #5d7276; }
+[data-theme="light"] .cp-home,
+[data-theme="light"] .cp-home-hero h1,
+[data-theme="light"] .panel h2,
+[data-theme="light"] .panel h3,
+[data-theme="light"] .cp-month-title,
+[data-theme="light"] .changes,
+[data-theme="light"] .share-legend,
+[data-theme="light"] .heat,
+[data-theme="light"] .recs li,
+[data-theme="light"] .day-total,
+[data-theme="light"] .cp-range { color: #15292c; }
+[data-theme="light"] .cp-month-title { border-bottom-color: #d3dcdb; }
+[data-theme="light"] .panel .link,
+[data-theme="light"] .kpi .link { color: #3b3fc4; }
+[data-theme="light"] .kpi-num.green,
+[data-theme="light"] .amt { color: #0f7a5c; }
+[data-theme="light"] .note { color: #0f6b5b; }
+[data-theme="light"] .day-note { color: #8a4e0f; }
+[data-theme="light"] .cp-tile svg { color: #1b8f86; }
+
+/* charts and bars */
+[data-theme="light"] .bar { fill: #1b8f86; }
+[data-theme="light"] .bar.spike { fill: #d9822b; }
+[data-theme="light"] .track { background: #dfe7e6; }
+[data-theme="light"] .fill { background: #1b8f86; }
+[data-theme="light"] .cell { background: rgba(27, 143, 134, calc(.08 + var(--i) * .8)); }
+[data-theme="light"] .cal-day {
+  color: #15292c;
+  border-color: #d3dcdb;
+  background: rgba(27, 143, 134, calc(.06 + var(--i) * .5));
+}
+
+/* date range bar */
+[data-theme="light"] .cp-range button { color: #15292c; background: #fff; border-color: #cfd8d7; }
+[data-theme="light"] .cp-range button.on { background: #5b4fd6; border-color: #5b4fd6; color: #fff; }
+[data-theme="light"] .cp-range label { color: #5d7276; }
+[data-theme="light"] .cp-range input[type="date"] { color: #15292c; color-scheme: light; background: #fff; border-color: #cfd8d7; }
+
+/* home buttons */
+[data-theme="light"] .cp-home-secondary { color: #15292c; border-color: rgba(21, 41, 44, 0.3); }
+[data-theme="light"] .cp-home-secondary:hover { background: rgba(21, 41, 44, 0.06); }
+
+/* bottom dock */
+[data-theme="light"] .cp-dock { background: rgba(255, 255, 255, 0.92); border-color: #d3dcdb; box-shadow: 0 16px 40px -14px rgba(20, 40, 70, 0.35); }
+[data-theme="light"] .cp-dock-btn { color: #3a4f53; }
+[data-theme="light"] .cp-dock-btn:hover { background: rgba(27, 143, 134, 0.14); color: #15292c; }
+
+/* login */
+[data-theme="light"] .cp-login-card { background: rgba(255, 255, 255, 0.92); color: #15292c; border-color: #d3dcdb; }
+[data-theme="light"] .cp-login-sub,
+[data-theme="light"] .cp-login label { color: #5d7276; }
+[data-theme="light"] .cp-login input:not([type="checkbox"]) { color: #15292c; background: #fff; border-color: #cfd8d7; }
+[data-theme="light"] .cp-link,
+[data-theme="light"] .cp-pw button { color: #3b3fc4; }
