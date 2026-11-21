@@ -1,103 +1,114 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { usd2 } from '../format.js';
+import Overview from '../views/Overview.jsx';
+import Services from '../views/Services.jsx';
+import Calendar from '../views/Calendar.jsx';
+import Savings from '../views/Savings.jsx';
 
-const usd = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-const shortDate = (iso) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const VIEWS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'services', label: 'Services' },
+  { id: 'calendar', label: 'Calendar' },
+  { id: 'savings', label: 'Savings' },
+];
+const fromHash = () => {
+  const h = window.location.hash.slice(1);
+  return VIEWS.some((v) => v.id === h) ? h : 'overview';
+};
 
-function DailyChart({ daily, anomalies }) {
-  const W = 760, H = 240, pad = { t: 12, r: 8, b: 26, l: 8 };
-  const max = Math.max(...daily.map((d) => d.total));
-  const bw = (W - pad.l - pad.r) / daily.length;
-  const flagged = new Set(anomalies.map((a) => a.date));
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Daily AWS spend, with unusually high days highlighted" className="chart">
-      {daily.map((d, i) => {
-        const h = ((H - pad.t - pad.b) * d.total) / max;
-        const x = pad.l + i * bw;
-        return (
-          <rect key={d.date} x={x + 2} y={H - pad.b - h} width={bw - 4} height={h} rx="2"
-            className={flagged.has(d.date) ? 'bar spike' : 'bar'}>
-            <title>{`${shortDate(d.date)}: ${usd(d.total)}`}</title>
-          </rect>
-        );
-      })}
-      <text x={pad.l} y={H - 6} className="axis">{shortDate(daily[0].date)}</text>
-      <text x={W - pad.r} y={H - 6} textAnchor="end" className="axis">{shortDate(daily[daily.length - 1].date)}</text>
-    </svg>
-  );
-}
-
-export default function Dashboard({ onSignOut }) {
+export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
+  const [view, setView] = useState(fromHash);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [recs, setRecs] = useState(null);
+  const [recError, setRecError] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState('');
+
+  const expired = (e) => {
+    if (e.status === 401) { onSignOut(); return true; }
+    return false;
+  };
+
+  const loadRecs = () =>
+    api('/recommendations')
+      .then((r) => { setRecs(r); setRecError(''); })
+      .catch((e) => { if (!expired(e)) setRecError(e.message); });
 
   useEffect(() => {
-    api('/costs?days=30')
-      .then(setData)
-      .catch((e) => (e.status === 401 ? onSignOut() : setError(e.message)));
+    const onHash = () => setView(fromHash());
+    window.addEventListener('hashchange', onHash);
+    api('/costs?days=30').then(setData).catch((e) => { if (!expired(e)) setError(e.message); });
+    loadRecs();
+    return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  if (error) return <main className="shell"><p className="error">{error}</p></main>;
-  if (!data) return <main className="shell"><p className="muted">Loading your costs…</p></main>;
+  async function scan() {
+    setScanning(true);
+    setScanMessage('');
+    setRecError('');
+    try {
+      const r = await api('/scan', { method: 'POST' });
+      const failed = r.errors.length ? ` ${r.errors.length} scanner(s) failed: ${r.errors.map((x) => x.scanner).join(', ')}.` : '';
+      setScanMessage(`Scan finished. Found ${r.found} item(s), about ${usd2(r.totalMonthlySavings)} a month.${failed}`);
+      await loadRecs();
+    } catch (e) {
+      if (!expired(e)) setRecError(e.message);
+    } finally {
+      setScanning(false);
+    }
+  }
 
-  const top = data.byService[0].amount;
+  async function dismiss(id) {
+    try {
+      await api(`/recommendations/${id}`, { method: 'PATCH', body: { status: 'dismissed' } });
+      await loadRecs();
+    } catch (e) {
+      if (!expired(e)) setRecError(e.message);
+    }
+  }
+
+  const live = data?.source === 'aws';
   return (
-    <main className="shell">
+    <div className="app">
       <header className="topbar">
-        <strong className="brand">CostPilot</strong>
-        <span className="pill">Sample data</span>
-        <button className="link" onClick={onSignOut}>Sign out</button>
+        <div className="brand-group">
+          <strong className="brand">CostPilot</strong>
+          {data && <span className={live ? 'pill live' : 'pill'}>{live ? 'Live AWS data' : 'Sample data'}</span>}
+        </div>
+        <div className="top-right">
+          <nav className="switcher" role="tablist" aria-label="Dashboard views">
+            {VIEWS.map((v) => (
+              <button
+                key={v.id}
+                role="tab"
+                aria-selected={view === v.id}
+                className={view === v.id ? 'tab on' : 'tab'}
+                onClick={() => { window.location.hash = v.id; }}
+              >
+                {v.label}
+                {v.id === 'savings' && recs?.count > 0 && <span className="badge">{recs.count}</span>}
+              </button>
+            ))}
+          </nav>
+          <button className="ghost" onClick={onToggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
+            {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+          </button>
+          <button className="ghost" onClick={onSignOut}>Sign out</button>
+        </div>
       </header>
 
-      <section className="summary">
-        <div>
-          <p className="muted">Spend, last {data.days} days</p>
-          <p className="big">{usd(data.total)}</p>
-        </div>
-        <div>
-          <p className="muted">Daily average</p>
-          <p className="mid">{usd(data.dailyAverage)}</p>
-        </div>
-        <div>
-          <p className="muted">Unusual days</p>
-          <p className="mid">{data.anomalies.length}</p>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Daily spend</h2>
-        <DailyChart daily={data.daily} anomalies={data.anomalies} />
-        <p className="legend"><span className="dot" /> Spend is more than 35% above the previous week's average</p>
-      </section>
-
-      {data.anomalies.length > 0 && (
-        <section className="panel">
-          <h2>What changed</h2>
-          <ul className="anomalies">
-            {data.anomalies.map((a) => (
-              <li key={a.date}>
-                <strong>{shortDate(a.date)}</strong>
-                <span>
-                  Spend hit {usd(a.total)} against an expected {usd(a.expected)}. {a.topDriver} added about {usd(a.extraSpend)} of it.
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section className="panel">
-        <h2>Spend by service</h2>
-        <ul className="services">
-          {data.byService.map((s) => (
-            <li key={s.service}>
-              <span>{s.service}</span>
-              <span className="track"><span className="fill" style={{ width: `${(s.amount / top) * 100}%` }} /></span>
-              <span className="amt">{usd(s.amount)}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-    </main>
+      <main className="stage">
+        {error && <p className="error">{error}</p>}
+        {!error && !data && <p className="muted">Loading your costs…</p>}
+        {data && view === 'overview' && <Overview data={data} recs={recs} onOpenSavings={() => { window.location.hash = 'savings'; }} />}
+        {data && view === 'services' && <Services data={data} />}
+        {data && view === 'calendar' && <Calendar data={data} />}
+        {data && view === 'savings' && (
+          <Savings recs={recs} error={recError} scanning={scanning} message={scanMessage} onScan={scan} onDismiss={dismiss} />
+        )}
+      </main>
+    </div>
   );
 }
