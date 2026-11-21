@@ -18,6 +18,9 @@ const SERVICES = {
   'CloudWatch': 7,
 };
 
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// Last N days ending today (unchanged behaviour).
 export function generateDailyCosts(days = 30) {
   const rand = mulberry32(42);
   const spikeDay = days - 9;
@@ -31,10 +34,37 @@ export function generateDailyCosts(days = 30) {
       let v = base * weekend * (0.93 + rand() * 0.14);
       if (i === spikeDay && name === 'Amazon EC2') v *= 1.9;
       if (i === spikeDay && name === 'Data Transfer') v *= 3.1;
-      byService[name] = Math.round(v * 100) / 100;
+      byService[name] = round2(v);
     }
-    const total = Math.round(Object.values(byService).reduce((a, b) => a + b, 0) * 100) / 100;
+    const total = round2(Object.values(byService).reduce((a, b) => a + b, 0));
     out.push({ date: d.toISOString().slice(0, 10), total, byService });
+  }
+  return out;
+}
+
+// Any date range, "YYYY-MM-DD" to "YYYY-MM-DD" (inclusive).
+// Each day is seeded by its own date, so a day shows the same numbers
+// no matter which range you ask for. Days after today are marked projected.
+export function generateCostsBetween(from, to) {
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  const today = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+  const out = [];
+  for (let t = start; t <= end; t += 86400000) {
+    const d = new Date(t);
+    const epochDay = t / 86400000;
+    const rand = mulberry32(epochDay * 7919);
+    const weekend = [0, 6].includes(d.getUTCDay()) ? 0.82 : 1;
+    const spike = epochDay % 29 === 0;
+    const byService = {};
+    for (const [name, base] of Object.entries(SERVICES)) {
+      let v = base * weekend * (0.93 + rand() * 0.14);
+      if (spike && name === 'Amazon EC2') v *= 1.9;
+      if (spike && name === 'Data Transfer') v *= 3.1;
+      byService[name] = round2(v);
+    }
+    const total = round2(Object.values(byService).reduce((a, b) => a + b, 0));
+    out.push({ date: d.toISOString().slice(0, 10), total, byService, projected: t > today });
   }
   return out;
 }

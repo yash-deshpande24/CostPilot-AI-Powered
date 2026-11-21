@@ -8,7 +8,13 @@ export default function App() {
   const [signedIn, setSignedIn] = useState(Boolean(getToken()));
   const [theme, toggleTheme] = useTheme();
 
-  if (!signedIn) return <Login onSignedIn={() => setSignedIn(true)} />;
+  const handleSignedIn = () => setSignedIn(true);
+
+  if (!signedIn) {
+    // Your Login uses onSignedIn; the new Login also accepts onLogin, so pass both.
+    return <Login onSignedIn={handleSignedIn} onLogin={handleSignedIn} />;
+  }
+
   return (
     <Dashboard
       theme={theme}

@@ -1,0 +1,106 @@
+/* Import after backdrop.css:  import "./dock.css"; */
+
+/* 1. Fix unreadable text: make every surface a dark glass with light text */
+[class*="card"], [class*="panel"] {
+  background: rgba(13, 27, 56, 0.55) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #e8eefc;
+}
+main, #root { color: #e8eefc; }
+main a { color: #8fb4ff; }
+
+/* 2. Floating dock */
+.cp-dock {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; gap: 6px; padding: 8px;
+  background: rgba(10, 22, 48, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.7);
+  z-index: 50;
+}
+.cp-dock-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-width: 68px; padding: 9px 10px;
+  background: transparent; color: #cfe0ff;
+  border: 0; border-radius: 14px; cursor: pointer;
+  font: 500 11px/1 inherit;
+  transition: background .15s, color .15s;
+}
+.cp-dock-btn:hover { background: rgba(45, 212, 191, 0.16); color: #fff; }
+.cp-dock-btn:focus-visible { outline: 2px solid #2dd4bf; outline-offset: 2px; }
+.cp-dock-btn.is-out:hover { background: rgba(245, 176, 66, 0.2); }
+@media (max-width: 520px) { .cp-dock-btn { min-width: 52px; } .cp-dock-btn span { display: none; } }
+
+/* leave room so the dock never covers the last card */
+main, #root { padding-bottom: 110px; }
+
+/* 3. Login */
+.cp-login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.cp-login-card {
+  width: min(400px, 100%); display: grid; gap: 14px; padding: 32px;
+  background: rgba(13, 27, 56, 0.62); color: #e8eefc;
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 22px;
+  backdrop-filter: blur(18px); box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.75);
+}
+.cp-login-brand { margin: 0; font-size: 34px; font-weight: 500; }
+.cp-login-sub { margin: 0 0 6px; color: #9fb3d9; font-size: 14px; }
+.cp-login label { display: grid; gap: 6px; font-size: 13px; color: #b9c9ea; }
+.cp-login input:not([type="checkbox"]) {
+  width: 100%; box-sizing: border-box; padding: 11px 12px; font-size: 15px;
+  color: #fff; background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 10px;
+}
+.cp-login input:focus { outline: 2px solid #2dd4bf; outline-offset: 1px; }
+.cp-pw { position: relative; display: block; }
+.cp-pw button { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: 0; color: #8fb4ff; cursor: pointer; font-size: 12px; }
+.cp-check { display: flex !important; align-items: center; gap: 8px !important; }
+.cp-primary { padding: 12px; border: 0; border-radius: 10px; background: #5b4fd6; color: #fff; font-weight: 600; font-size: 15px; cursor: pointer; }
+.cp-primary:hover { background: #6d62e6; }
+.cp-primary:disabled { opacity: .6; cursor: wait; }
+.cp-link { background: none; border: 0; color: #8fb4ff; cursor: pointer; font-size: 13px; }
+.cp-login-err { margin: 0; padding: 9px 12px; border-radius: 8px; background: rgba(245, 120, 66, 0.16); color: #ffc2a1; font-size: 13px; }
+
+/* 4. Home page */
+.cp-home { display: grid; gap: 22px; padding: 12px 0 40px; color: #e8eefc; }
+.cp-home-hero { padding: 36px 8px 8px; }
+.cp-home-hero h1 { margin: 0 0 8px; font-size: clamp(30px, 5vw, 46px); font-weight: 500; line-height: 1.1; max-width: 16ch; }
+.cp-home-hero p { margin: 0 0 20px; color: #9fb3d9; font-size: 16px; }
+.cp-home-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.cp-home-primary, .cp-home-secondary { padding: 11px 18px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid transparent; }
+.cp-home-primary { background: #5b4fd6; color: #fff; }
+.cp-home-primary:hover { background: #6d62e6; }
+.cp-home-secondary { background: transparent; color: #cfe0ff; border-color: rgba(255, 255, 255, 0.25); }
+.cp-home-secondary:hover { background: rgba(255, 255, 255, 0.08); }
+.cp-home-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.cp-home-card { border-radius: 16px; padding: 18px 20px; }
+.cp-stat { display: grid; gap: 6px; }
+.cp-stat-label { font-size: 13px; color: #9fb3d9; }
+.cp-stat strong { font-size: 20px; font-weight: 500; }
+.cp-home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.cp-tile { display: grid; gap: 8px; text-align: left; cursor: pointer; color: inherit; font: inherit; transition: transform .15s, border-color .15s; }
+.cp-tile:hover { transform: translateY(-3px); border-color: rgba(45, 212, 191, 0.6) !important; }
+.cp-tile:focus-visible { outline: 2px solid #2dd4bf; outline-offset: 2px; }
+.cp-tile svg { color: #2dd4bf; }
+.cp-tile-title { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.cp-tile-text { font-size: 14px; color: #9fb3d9; line-height: 1.4; }
+.cp-tile-badge { font-style: normal; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: #f5b042; color: #1a1200; }
+
+/* 5. Date range bar (Overview) */
+.cp-range { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; margin: 4px 0 18px; color: #e8eefc; }
+.cp-range-presets, .cp-range-custom { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cp-range button { padding: 8px 14px; border-radius: 10px; font-size: 13px; cursor: pointer; color: #cfe0ff; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.16); }
+.cp-range button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.cp-range button.on { background: #5b4fd6; border-color: #5b4fd6; color: #fff; }
+.cp-range button:disabled { opacity: .45; cursor: not-allowed; }
+.cp-range label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #9fb3d9; }
+.cp-range input[type="date"] { padding: 7px 10px; border-radius: 10px; color: #fff; color-scheme: dark; background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.16); }
+
+/* 6. Calendar months, today marker, forecast days */
+.cp-cal-weekdays { margin-top: 14px; }
+.cp-month { margin-top: 18px; }
+.cp-month-title { margin: 0 0 10px; font-size: 16px; font-weight: 600; color: #e8eefc; padding-bottom: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
+.cal-day.today { box-shadow: 0 0 0 2px #2dd4bf; }
+.cp-today-tag { margin-left: 6px; font-style: normal; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 99px; background: #2dd4bf; color: #04201c; }
+.cal-day.projected { opacity: .62; border-style: dashed; }

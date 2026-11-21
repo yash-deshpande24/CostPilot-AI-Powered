@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { usd2 } from '../format.js';
+import Home from '../views/Home.jsx';
 import Overview from '../views/Overview.jsx';
 import Services from '../views/Services.jsx';
 import Calendar from '../views/Calendar.jsx';
 import Savings from '../views/Savings.jsx';
+import QuickBar from '../components/QuickBar.jsx';
 
 const VIEWS = [
+  { id: 'home', label: 'Home' },
   { id: 'overview', label: 'Overview' },
   { id: 'services', label: 'Services' },
   { id: 'calendar', label: 'Calendar' },
@@ -14,11 +17,29 @@ const VIEWS = [
 ];
 const fromHash = () => {
   const h = window.location.hash.slice(1);
-  return VIEWS.some((v) => v.id === h) ? h : 'overview';
+  return VIEWS.some((v) => v.id === h) ? h : 'home';
 };
+
+// Turn the /costs response into a CSV download. Finds the first array of
+// objects in the response (daily rows), so it works without knowing the exact key.
+function downloadCsv(data) {
+  const rows =
+    [data?.daily, data?.days, data?.series, data?.byDay].find((x) => Array.isArray(x)) ||
+    Object.values(data || {}).find((x) => Array.isArray(x) && x.length && typeof x[0] === 'object');
+  if (!rows || !rows.length) { alert('No cost rows to export yet.'); return; }
+  const cols = Object.keys(rows[0]).filter((k) => typeof rows[0][k] !== 'object');
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `costpilot-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
   const [view, setView] = useState(fromHash);
+  const [range, setRange] = useState({ days: 30 });
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [recs, setRecs] = useState(null);
@@ -31,6 +52,11 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
     return false;
   };
 
+  const loadCosts = () =>
+    api(range.from ? `/costs?from=${range.from}&to=${range.to}` : `/costs?days=${range.days || 30}`)
+      .then((d) => { setData(d); setError(''); })
+      .catch((e) => { if (!expired(e)) setError(e.message); });
+
   const loadRecs = () =>
     api('/recommendations')
       .then((r) => { setRecs(r); setRecError(''); })
@@ -39,10 +65,11 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
   useEffect(() => {
     const onHash = () => setView(fromHash());
     window.addEventListener('hashchange', onHash);
-    api('/costs?days=30').then(setData).catch((e) => { if (!expired(e)) setError(e.message); });
     loadRecs();
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  useEffect(() => { loadCosts(); }, [range]);
 
   async function scan() {
     setScanning(true);
@@ -101,14 +128,17 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
 
       <main className="stage">
         {error && <p className="error">{error}</p>}
-        {!error && !data && <p className="muted">Loading your costs…</p>}
-        {data && view === 'overview' && <Overview data={data} recs={recs} onOpenSavings={() => { window.location.hash = 'savings'; }} />}
+        {!error && !data && view !== 'home' && <p className="muted">Loading your costs…</p>}
+        {view === 'home' && <Home data={data} recs={recs} />}
+        {data && view === 'overview' && <Overview data={data} recs={recs} range={range} onRangeChange={setRange} onOpenSavings={() => { window.location.hash = 'savings'; }} />}
         {data && view === 'services' && <Services data={data} />}
-        {data && view === 'calendar' && <Calendar data={data} />}
+        {data && view === 'calendar' && <Calendar data={data} range={range} onRangeChange={setRange} />}
         {data && view === 'savings' && (
-          <Savings recs={recs} error={recError} scanning={scanning} message={scanMessage} onScan={scan} onDismiss={dismiss} />
+          <Savings recs={recs} error={recError ? `${recError}. Check that the backend is running: docker compose logs backend` : ''} scanning={scanning} message={scanMessage} onScan={scan} onDismiss={dismiss} />
         )}
       </main>
+
+      <QuickBar onExport={() => downloadCsv(data)} onSignOut={onSignOut} />
     </div>
   );
 }
