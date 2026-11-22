@@ -1,0 +1,62 @@
+# CostPilot Week 3 smoke test. Run from the project root while the containers are up:
+#   powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-week3.ps1
+param([string]$Api = "http://localhost:5000")
+
+$script:failed = 0
+function Check($name, $ok, $extra = "") {
+  if ($ok) { Write-Host "PASS  $name $extra" -ForegroundColor Green }
+  else { Write-Host "FAIL  $name $extra" -ForegroundColor Red; $script:failed++ }
+}
+function Post($path, $obj, $headers) {
+  Invoke-RestMethod -Method Post -Uri "$Api$path" -Headers $headers -ContentType "application/json" -Body ($obj | ConvertTo-Json)
+}
+
+try {
+  $health = Invoke-RestMethod "$Api/health"
+  Check "API is up" ($health.status -eq "ok") "(AI mode: $($health.ai))"
+
+  $creds = @{ email = "smoke$(Get-Random)@test.com"; password = "password123" }
+  $reg = Post "/api/auth/register" $creds @{}
+  $h = @{ Authorization = "Bearer $($reg.token)" }
+
+  $status = Invoke-RestMethod -Uri "$Api/api/ai/status" -Headers $h
+  Check "AI status" (($status.mode -eq "mock") -or ($status.mode -eq "claude")) "(mode: $($status.mode), limit: $($status.limit))"
+
+  $costs = Invoke-RestMethod -Uri "$Api/api/costs?days=30" -Headers $h
+  Check "Costs have an unusual day" ($costs.anomalies.Count -ge 1)
+  $date = $costs.anomalies[0].date
+
+  $ex = Post "/api/ai/explain" @{ date = $date } $h
+  Check "Explain this day" ([bool]$ex.result.summary) "($($ex.result.summary.Substring(0, [Math]::Min(60, $ex.result.summary.Length)))...)"
+
+  Post "/api/scan" @{} $h | Out-Null
+  $rank = Post "/api/ai/rank" @{} $h
+  Check "Rank with AI" ($rank.ranked -ge 1) "($($rank.ranked) items ranked)"
+  $recs = Invoke-RestMethod -Uri "$Api/api/recommendations" -Headers $h
+  Check "Top item has a priority of 1" ($recs.items[0].aiPriority -eq 1)
+
+  $chat = Post "/api/ai/chat" @{ question = "Which service costs the most?" } $h
+  Check "Chat answers" ([bool]$chat.answer) "($($chat.answer.Substring(0, [Math]::Min(60, $chat.answer.Length)))...)"
+  $hist = Invoke-RestMethod -Uri "$Api/api/ai/chat" -Headers $h
+  Check "Chat history saved" ($hist.items.Count -eq 2)
+
+  $empty = $false
+  try { Post "/api/ai/chat" @{ question = "" } $h | Out-Null } catch { $empty = ($_.Exception.Response.StatusCode.value__ -eq 400) }
+  Check "Empty question is rejected" $empty
+
+  $blocked = $false
+  try { Invoke-RestMethod -Uri "$Api/api/ai/chat" | Out-Null } catch { $blocked = ($_.Exception.Response.StatusCode.value__ -eq 401) }
+  Check "AI routes need a token" $blocked
+
+  Invoke-RestMethod -Method Delete -Uri "$Api/api/ai/chat" -Headers $h | Out-Null
+  $after = Invoke-RestMethod -Uri "$Api/api/ai/chat" -Headers $h
+  Check "Clear chat" ($after.items.Count -eq 0)
+}
+catch {
+  Write-Host "ERROR $($_.Exception.Message)" -ForegroundColor Red
+  $script:failed++
+}
+
+Write-Host ""
+if ($script:failed -eq 0) { Write-Host "All checks passed." -ForegroundColor Green }
+else { Write-Host "$($script:failed) check(s) failed." -ForegroundColor Red; exit 1 }

@@ -1,14 +1,15 @@
 {
   "name": "costpilot-backend",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test src/tests/anomaly.test.js src/tests/awsCost.test.js src/tests/scanners.test.js"
+    "test": "node --test src/tests/anomaly.test.js src/tests/awsCost.test.js src/tests/scanners.test.js src/tests/ai.test.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.5.0",
     "@aws-sdk/client-cloudwatch": "^3.600.0",
     "@aws-sdk/client-cost-explorer": "^3.600.0",
     "@aws-sdk/client-ec2": "^3.600.0",

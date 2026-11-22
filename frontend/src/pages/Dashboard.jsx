@@ -6,6 +6,7 @@ import Overview from '../views/Overview.jsx';
 import Services from '../views/Services.jsx';
 import Calendar from '../views/Calendar.jsx';
 import Savings from '../views/Savings.jsx';
+import Ask from '../views/Ask.jsx';
 import QuickBar from '../components/QuickBar.jsx';
 
 const VIEWS = [
@@ -14,6 +15,7 @@ const VIEWS = [
   { id: 'services', label: 'Services' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'savings', label: 'Savings' },
+  { id: 'ask', label: 'Ask AI' },
 ];
 const fromHash = () => {
   const h = window.location.hash.slice(1);
@@ -46,6 +48,7 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
   const [recError, setRecError] = useState('');
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState('');
+  const [ranking, setRanking] = useState(false);
 
   const expired = (e) => {
     if (e.status === 401) { onSignOut(); return true; }
@@ -87,6 +90,21 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
     }
   }
 
+  async function rank() {
+    setRanking(true);
+    setScanMessage('');
+    setRecError('');
+    try {
+      const r = await api('/ai/rank', { method: 'POST' });
+      setScanMessage(`${r.mode === 'mock' ? 'Sample ranking. ' : ''}${r.headline}`);
+      await loadRecs();
+    } catch (e) {
+      if (!expired(e)) setRecError(e.message);
+    } finally {
+      setRanking(false);
+    }
+  }
+
   async function dismiss(id) {
     try {
       await api(`/recommendations/${id}`, { method: 'PATCH', body: { status: 'dismissed' } });
@@ -106,7 +124,7 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
         </div>
         <div className="top-right">
           <nav className="switcher" role="tablist" aria-label="Dashboard views">
-            {VIEWS.filter((v) => v.id !== 'home').map((v) =>  (
+            {VIEWS.filter((v) => v.id !== 'home').map((v) => (
               <button
                 key={v.id}
                 role="tab"
@@ -134,8 +152,18 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
         {data && view === 'services' && <Services data={data} />}
         {data && view === 'calendar' && <Calendar data={data} range={range} onRangeChange={setRange} />}
         {data && view === 'savings' && (
-          <Savings recs={recs} error={recError ? `${recError}. Check that the backend is running: docker compose logs backend` : ''} scanning={scanning} message={scanMessage} onScan={scan} onDismiss={dismiss} />
+          <Savings
+            recs={recs}
+            error={recError ? `${recError}. Check that the backend is running: docker compose logs backend` : ''}
+            scanning={scanning}
+            ranking={ranking}
+            message={scanMessage}
+            onScan={scan}
+            onRank={rank}
+            onDismiss={dismiss}
+          />
         )}
+        {data && view === 'ask' && <Ask />}
       </main>
 
       <QuickBar onExport={() => downloadCsv(data)} onSignOut={onSignOut} />

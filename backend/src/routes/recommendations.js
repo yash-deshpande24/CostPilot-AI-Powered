@@ -10,9 +10,13 @@ router.use(requireAuth);
 
 router.get('/', asyncHandler(async (_req, res) => {
   const source = costSource();
-  const items = await Recommendation.find({ source, status: { $in: ['new', 'pr_opened'] } })
-    .sort({ monthlySavings: -1 })
-    .lean();
+  const items = await Recommendation.find({ source, status: { $in: ['new', 'pr_opened'] } }).lean();
+  // AI-ranked items first (by rank), then the rest by savings.
+  items.sort((a, b) => {
+    const pa = a.aiPriority ?? Infinity;
+    const pb = b.aiPriority ?? Infinity;
+    return pa !== pb ? pa - pb : b.monthlySavings - a.monthlySavings;
+  });
   const total = items.reduce((s, r) => s + r.monthlySavings, 0);
   const last = await Recommendation.findOne({ source }).sort({ lastSeenAt: -1 }).lean();
 

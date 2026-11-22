@@ -15,6 +15,12 @@ const schema = new mongoose.Schema(
     status: { type: String, enum: STATUSES, default: 'new' },
     prUrl: String, // filled in Week 6
     lastSeenAt: Date,
+    // Week 3: filled by "Rank with AI"
+    aiPriority: Number,
+    aiRisk: { type: String, enum: ['low', 'medium', 'high'] },
+    aiEffort: { type: String, enum: ['minutes', 'hours', 'days'] },
+    aiReason: String,
+    aiRankedAt: Date,
   },
   { timestamps: true }
 );

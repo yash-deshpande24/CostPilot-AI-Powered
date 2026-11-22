@@ -2,11 +2,13 @@ import { usd2 } from '../format.js';
 
 const TYPE_LABEL = { unattached_ebs: 'Unattached disks', unattached_eip: 'Unused IP addresses', idle_ec2: 'Idle servers' };
 const TYPE_COLOR = { unattached_ebs: '#6f74e8', unattached_eip: '#e9a23b', idle_ec2: '#3fb6a8' };
+const RISK_CLASS = { low: 'low', medium: 'medium', high: 'high' };
 
-export default function Savings({ recs, error, scanning, message, onScan, onDismiss }) {
+export default function Savings({ recs, error, scanning, ranking, message, onScan, onRank, onDismiss }) {
   const byType = {};
   (recs?.items || []).forEach((r) => { byType[r.type] = (byType[r.type] || 0) + r.monthlySavings; });
   const total = recs?.totalMonthlySavings || 0;
+  const ranked = (recs?.items || []).some((r) => r.aiPriority);
 
   return (
     <>
@@ -16,7 +18,10 @@ export default function Savings({ recs, error, scanning, message, onScan, onDism
           <p className="kpi-num green">{usd2(total)}<span className="per"> a month</span></p>
           {recs?.lastScanAt && <p className="muted tight">Last scan {new Date(recs.lastScanAt).toLocaleString()}</p>}
         </div>
-        <button className="primary" onClick={onScan} disabled={scanning}>{scanning ? 'Scanning…' : 'Scan now'}</button>
+        <div className="btn-row">
+          <button className="ghost" onClick={onRank} disabled={ranking || !recs || recs.count === 0}>{ranking ? 'Ranking…' : 'Rank with AI'}</button>
+          <button className="primary" onClick={onScan} disabled={scanning}>{scanning ? 'Scanning…' : 'Scan now'}</button>
+        </div>
       </section>
 
       {message && <p className="note">{message}</p>}
@@ -46,14 +51,24 @@ export default function Savings({ recs, error, scanning, message, onScan, onDism
           </section>
 
           <section className="panel">
-            <h2>Fix these first</h2>
+            <h2>{ranked ? 'Do these in this order' : 'Fix these first'}</h2>
             <ul className="recs">
               {recs.items.map((r) => (
                 <li key={r._id}>
-                  <div>
-                    <strong>{r.title}</strong>
-                    <p className="muted small">{r.resourceId}</p>
-                    <p className="muted small">{r.detail}</p>
+                  <div className="rec-main">
+                    {r.aiPriority && <span className="rank-no" aria-label={`Priority ${r.aiPriority}`}>{r.aiPriority}</span>}
+                    <div>
+                      <strong>{r.title}</strong>
+                      <p className="muted small">{r.resourceId}</p>
+                      <p className="muted small">{r.detail}</p>
+                      {r.aiReason && <p className="ai-reason">{r.aiReason}</p>}
+                      {r.aiRisk && (
+                        <p className="chips">
+                          <span className={`chip ${RISK_CLASS[r.aiRisk]}`}>Risk {r.aiRisk}</span>
+                          <span className="chip">Effort {r.aiEffort}</span>
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <div className="rec-right">
                     <span className="amt">{usd2(r.monthlySavings)}/mo</span>
