@@ -11,7 +11,7 @@ CostPilot finds wasted AWS spend, explains it in plain English with AI, and open
 |---|---|---|
 | 1 | Login, mock cost dashboard, spike detection, Docker Compose | Done |
 | 2 | AWS Cost Explorer, waste scanners, savings recommendations, new UI | Done |
-| 3 | Claude API (explain spikes, chat with your bill) | Planned |
+| 3 | Claude API: explain spikes, rank savings, chat with your bill | Done |
 | 4 | Terraform (VPC, EKS, ECR, S3, SQS, IAM) | Planned |
 | 5 | Helm + ArgoCD on EKS, daily scan CronJob | Planned |
 | 6 | GitHub Actions + Jenkins, automatic PR generation | Planned |
@@ -123,6 +123,87 @@ The dashboard label changes from "Sample data" to "Live AWS data". Savings are e
 
 ---
 
+# Week 3: Claude explains, ranks and answers
+
+**Goal:** add AI on top of the cost data. Claude explains why a day was expensive, decides which savings to do first, and answers questions about your bill. Everything also works with no API key.
+
+## What was added
+
+- **Explain this** on every unusual day in the Overview tab. Returns a short summary, possible causes, things to check in AWS, and a confidence level.
+- **Rank with AI** on the Savings tab. Orders the waste findings and gives each one a priority number, a risk level (low / medium / high), an effort level (minutes / hours / days) and a one-line reason. AI-ranked items are shown first.
+- **Ask AI** tab: a chat about your bill ("Which service costs the most?"). The last messages are saved per user and can be cleared.
+- **Sample mode (no key needed).** With no `ANTHROPIC_API_KEY`, every AI feature still works using answers built from your own numbers. Nothing is sent anywhere. The Ask AI tab shows which mode is active.
+- **Real Claude mode.** Set `ANTHROPIC_API_KEY` and the same features are answered by Claude (default model `claude-haiku-5-5`). Explain and Rank use structured tool output, and the server checks the result before saving it.
+- **Daily limit.** `AI_DAILY_LIMIT` (default 30) caps AI requests per user per day. Explain, rank and chat each count as one. The limit resets at midnight UTC.
+- **Usage tracking.** Calls and token counts per user per day are stored, ready for the Week 7 Datadog dashboard. Set both price variables to see an estimated daily AI cost.
+- **Caching.** An explanation of the same day with the same spend is saved for 7 days, so asking twice costs nothing.
+- **Friendly errors.** A bad key, a rate limit or a wrong model name each show a clear message. The raw error is logged on the server and never shown.
+- **Tests and smoke test** for the AI code.
+
+## Safety
+
+- The AI only advises. It has no access to AWS and cannot change anything.
+- AWS text such as resource names and tags is sent inside tags, and the prompt tells Claude to treat it as data, not instructions.
+- Your API key stays on the server and never reaches the browser. Error messages never include it.
+- Requests are limited per user per day.
+- It uses only the numbers it is given. If the data does not contain the answer, it says so.
+
+## Using the real Claude API
+
+1. Create an API key in the Anthropic Console (console.anthropic.com).
+2. In `.env`, set `ANTHROPIC_API_KEY=...`. Optionally set `ANTHROPIC_MODEL`.
+3. Run `docker compose up -d --build`.
+4. Open the **Ask AI** tab. It should say "Answers written by Claude". `http://localhost:5000/health` now shows `"ai":"claude"`.
+5. Never commit `.env`.
+
+To go back to free sample answers, empty `ANTHROPIC_API_KEY` (or set `AI_MODE=mock`) and rebuild.
+
+## Week 3 files
+
+```
+backend/src/services/ai/index.js       explainSpend, rankRecommendations, chatWithBill
+backend/src/services/ai/claude.js      Anthropic SDK call, tool output, retry, token count
+backend/src/services/ai/prompts.js     system prompts and the two tool schemas
+backend/src/services/ai/context.js     builds the bill summary and one-day detail
+backend/src/services/ai/mock.js        free sample answers built from your numbers
+backend/src/services/ai/usage.js       daily limit, token counts, cost estimate
+backend/src/services/ai/errors.js      friendly error messages
+backend/src/services/ai/config.js      AI mode, model, daily limit
+backend/src/services/ai/fmt.js         money formatting helper
+backend/src/models/AiUsage.js          calls and tokens per user per day
+backend/src/models/AiCache.js          saved explanations (7 days)
+backend/src/models/ChatMessage.js      saved chat history
+backend/src/models/Recommendation.js   adds aiPriority, aiRisk, aiEffort, aiReason, aiRankedAt
+backend/src/routes/ai.js               /api/ai/* routes
+backend/src/routes/recommendations.js  AI-ranked items sorted first
+backend/src/tests/ai.test.js           AI tests
+frontend/src/views/Ask.jsx             chat tab
+frontend/src/components/ExplainCard.jsx   "Explain this" card
+frontend/src/views/Overview.jsx        Explain this on unusual days
+frontend/src/views/Savings.jsx         Rank with AI, priority, risk and effort chips
+scripts/smoke-test-week3.ps1           end-to-end AI check
+docs/week3.md                          Week 3 notes
+```
+
+## Week 3 API
+
+All routes need `Authorization: Bearer <token>`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | /api/ai/status | Mode, model, requests used today, limit, tokens, estimated cost |
+| POST | /api/ai/explain | Body `{"date":"2026-11-13"}`. Explains one day |
+| POST | /api/ai/rank | Ranks the active waste findings and saves the ranking |
+| POST | /api/ai/chat | Body `{"question":"..."}` (up to 500 characters) |
+| GET | /api/ai/chat | Read your chat history (last 50 messages) |
+| DELETE | /api/ai/chat | Clear your chat history |
+
+`GET /health` now also returns `"ai": "mock"` or `"claude"`.
+
+Common responses: `400` empty question, bad date or nothing to rank (run a scan first), `404` no data for that date, `429` daily limit reached, `502` Claude key rejected, rate limited or unreachable.
+
+---
+
 # Running the project
 
 ## Services and URLs
@@ -133,9 +214,11 @@ The dashboard label changes from "Sample data" to "Live AWS data". Savings are e
 | Frontend dev server (Vite) | 5173 | http://localhost:5173 | Only when running without Docker |
 | Backend (Express API) | 5000 | http://localhost:5000 | Health check: http://localhost:5000/health |
 | MongoDB | 27017 | `mongodb://localhost:27017/costpilot` | See the Database section for Docker |
+| Claude API | 443 | https://api.anthropic.com | Called by the backend only, and only when a key is set |
 
 ```
 Browser -> Frontend :8080 (nginx) -> /api/* proxied to Backend :5000 -> MongoDB :27017
+                                                                     -> Claude API (optional)
 ```
 
 In Docker, containers reach each other by service name (`backend`, `mongo`), so the backend uses `mongodb://mongo:27017/costpilot`. From your own machine, use `localhost`.
@@ -150,7 +233,7 @@ docker compose up -d --build
 docker compose ps             # frontend, backend and mongo should all be Up
 ```
 
-Open http://localhost:8080, choose **Create an account** (password 8+ characters) and sign in. Sample data is used by default, so no AWS account is needed.
+Open http://localhost:8080, choose **Create an account** (password 8+ characters) and sign in. Sample data and sample AI answers are used by default, so no AWS account or API key is needed.
 
 ```powershell
 docker compose logs backend --tail 30   # backend errors
@@ -176,12 +259,13 @@ PORT=5000
 MONGO_URI=mongodb://localhost:27017/costpilot
 JWT_SECRET=change-me-to-a-long-random-string
 COST_SOURCE=mock
+ANTHROPIC_API_KEY=
 ```
 
 ```powershell
 cd backend
 npm install
-npm run dev      # expect "MongoDB connected" and "API listening on :5000"
+npm run dev      # expect "MongoDB connected" and "API listening on :5000 (cost source: mock, ai: mock)"
 ```
 
 **3. Frontend** (second terminal):
@@ -208,8 +292,11 @@ MongoDB 7, database name `costpilot`.
 | Collection | Purpose | Added in |
 |---|---|---|
 | `users` | Accounts (email, bcrypt hash, role) | Week 1 |
-| `recommendations` | Scan findings with savings estimate and status | Week 2 |
+| `recommendations` | Scan findings with savings estimate, status and AI ranking | Week 2, extended in Week 3 |
 | `costcaches` | Cached Cost Explorer responses | Week 2 |
+| `aiusages` | AI calls and tokens per user per day | Week 3 |
+| `aicaches` | Saved explanations, expire after 7 days | Week 3 |
+| `chatmessages` | Ask AI chat history per user | Week 3 |
 
 | Where you run | Connection string |
 |---|---|
@@ -227,13 +314,14 @@ docker compose exec mongo mongosh costpilot
 show collections
 db.users.find({}, { email: 1, role: 1 })
 db.recommendations.countDocuments()
+db.aiusages.find()
 ```
 
 Data lives in the `mongo-data` Docker volume and survives `docker compose down`.
 
 ## Configuration
 
-Copy `.env.example` to `.env`.
+Copy `.env.example` to `.env`. Never commit `.env`.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -244,19 +332,25 @@ Copy `.env.example` to `.env`.
 | `AWS_REGION` | `ap-south-1` | Region for resource scans |
 | `AWS_ACCESS_KEY_ID` | empty | Only needed when `COST_SOURCE=aws` |
 | `AWS_SECRET_ACCESS_KEY` | empty | Only needed when `COST_SOURCE=aws` |
-| `ANTHROPIC_API_KEY` | empty | Used from Week 3 |
+| `ANTHROPIC_API_KEY` | empty | Empty = free sample AI answers. Set it to use Claude. |
+| `ANTHROPIC_MODEL` | `claude-haiku-5-5` | Claude model used for AI features |
+| `AI_MODE` | not set | Set to `mock` to force sample answers even when a key is set |
+| `AI_DAILY_LIMIT` | `30` | Max AI requests per user per day |
+| `AI_PRICE_INPUT_PER_MTOK` | empty | USD per million input tokens, from the Anthropic pricing page |
+| `AI_PRICE_OUTPUT_PER_MTOK` | empty | USD per million output tokens. Set both prices to see an estimated daily cost |
 
 ## Tests
 
 ```powershell
 cd backend
-npm test
+npm test        # anomaly, Cost Explorer, scanners and AI tests
 ```
 
 With the containers running, check the API end to end:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test.ps1         # Weeks 1 and 2
+powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-week3.ps1   # Week 3 (AI)
 ```
 
 ## Troubleshooting
@@ -269,15 +363,22 @@ powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test.ps1
 | Sent back to sign-in | Token expired or from an older version. Clear site data and register again |
 | Code change not visible | The frontend is built into the image. Rebuild it and hard refresh (Ctrl + F5) |
 | Top button does nothing | The page is too short to scroll. Try Overview or Calendar |
+| "The Claude API key was rejected" | Check `ANTHROPIC_API_KEY` in `.env`, then `docker compose up -d --build backend` |
+| "Claude could not run this request" | `ANTHROPIC_MODEL` is not a valid model name |
+| "Claude is rate limiting requests" | Wait a minute and try again |
+| "You have used all 30 AI requests" | Wait for midnight UTC or raise `AI_DAILY_LIMIT` |
+| "There is nothing to rank yet" | Run **Scan now** on the Savings tab first |
+| AI answers say "sample" | No API key is set. Add `ANTHROPIC_API_KEY` to use Claude |
+| `.env` change not picked up | Recreate the backend: `docker compose up -d --build backend` |
 
 ## Project structure
 
 ```
-backend/          Express API, scanners, anomaly detection, tests
+backend/          Express API, scanners, AI service, anomaly detection, tests
 frontend/         React + Vite app, served by nginx in Docker
 costpilot-gitops/ Helm chart and Argo CD ApplicationSet
-docs/             Architecture notes, IAM policy, weekly notes
-scripts/          PowerShell smoke test
+docs/             Architecture notes, IAM policy, weekly notes (week2.md, week3.md)
+scripts/          PowerShell smoke tests (Week 2 and Week 3)
 terraform/        Infrastructure code (Week 4)
 worker/           Scheduled scan worker (Week 5)
 ```
