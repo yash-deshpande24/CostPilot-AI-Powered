@@ -5,6 +5,7 @@ import './styles.css';
 import './backdrop.css';
 import './dock.css';
 import './theme.css';
+import './home.css';
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

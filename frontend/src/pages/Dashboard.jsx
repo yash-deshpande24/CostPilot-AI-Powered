@@ -51,7 +51,7 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
   const [ranking, setRanking] = useState(false);
 
   const expired = (e) => {
-    if (e.status === 401) { onSignOut(); return true; }
+    if (e.status === 401) { onSignOut('expired'); return true; }
     return false;
   };
 
@@ -114,6 +114,8 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
     }
   }
 
+  const goHome = () => { window.location.hash = 'home'; window.scrollTo({ top: 0, behavior: 'smooth' }); };
+
   const live = data?.source === 'aws';
   return (
     <div className="app">
@@ -141,10 +143,20 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
             {theme === 'dark' ? 'Light theme' : 'Dark theme'}
           </button>
           <button className="ghost" onClick={onSignOut}>Sign out</button>
+          {view !== 'home' && (
+            <button className="ghost home-btn" onClick={goHome}>
+              Home
+            </button>
+          )}
         </div>
       </header>
 
       <main className="stage">
+        {view !== 'home' && (
+          <button className="back-home" onClick={goHome}>
+            ← Home
+          </button>
+        )}
         {error && <p className="error">{error}</p>}
         {!error && !data && view !== 'home' && <p className="muted">Loading your costs…</p>}
         {view === 'home' && <Home data={data} recs={recs} />}

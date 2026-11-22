@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, setToken } from "../api.js";
+import { toast } from "../toast.js";
 
 export default function Login({ onLogin }) {
   const [mode, setMode] = useState("signin");
@@ -16,6 +17,7 @@ export default function Login({ onLogin }) {
       const path = mode === "signin" ? "/auth/login" : "/auth/register";
       const { token } = await api(path, { method: "POST", body: { email, password: pw } });
       setToken(token);
+      toast(mode === "signin" ? "Logged in successfully." : "Account created successfully.");
       onLogin?.();
     } catch (x) { setErr(x.message); }
     setBusy(false);
@@ -36,6 +38,11 @@ export default function Login({ onLogin }) {
             <button type="button" onClick={() => setShow(!show)}>{show ? "Hide" : "Show"}</button>
           </span>
         </label>
+        {mode === "signin" && (
+          <button type="button" className="cp-link" onClick={() => { window.location.hash = "forgot"; }}>
+            Forgot password?
+          </button>
+        )}
         {err && <p className="cp-login-err" role="alert">{err}</p>}
         <button className="cp-primary" disabled={busy}>{mode === "signin" ? "Sign in" : "Create account"}</button>
         <button type="button" className="cp-link" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setErr(""); }}>
