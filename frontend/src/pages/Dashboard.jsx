@@ -142,7 +142,8 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
           <button className="ghost" onClick={onToggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
             {theme === 'dark' ? 'Light theme' : 'Dark theme'}
           </button>
-          <button className="ghost" onClick={onSignOut}>Sign out</button>
+          {/* Wrapped so the click event isn't passed as the "reason" argument */}
+          <button className="ghost" onClick={() => onSignOut()}>Sign out</button>
           {view !== 'home' && (
             <button className="ghost home-btn" onClick={goHome}>
               Home
@@ -170,6 +171,7 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
             scanning={scanning}
             ranking={ranking}
             message={scanMessage}
+            monthlyRate={data.dailyAverage * 30}
             onScan={scan}
             onRank={rank}
             onDismiss={dismiss}
@@ -178,7 +180,7 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
         {data && view === 'ask' && <Ask />}
       </main>
 
-      <QuickBar onExport={() => downloadCsv(data)} onSignOut={onSignOut} />
+      <QuickBar onExport={() => downloadCsv(data)} onSignOut={() => onSignOut()} />
     </div>
   );
 }
