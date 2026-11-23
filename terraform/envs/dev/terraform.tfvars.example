@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars (it is ignored by git) and change what you need.
+
+# Limit who can reach the Kubernetes API. Find your IP at https://checkip.amazonaws.com
+# api_allowed_cidrs = ["203.0.113.7/32"]
+
+# Get an email when the account passes 80% of the budget, or is forecast to pass 100%.
+# alert_email        = "you@example.com"
+# monthly_budget_usd = 150
+
+# Cheapest possible cluster while you learn
+# node_desired = 1

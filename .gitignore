@@ -8,3 +8,5 @@ dist/
 *.tfstate
 *.tfstate.*
 *.tfvars
+terraform/**/backend.hcl
+terraform/**/backend.hcl
