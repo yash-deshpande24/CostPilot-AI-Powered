@@ -1,0 +1,27 @@
+# Tells ArgoCD to keep the cluster in sync with the Helm chart in this repo.
+# Apply it once with: kubectl apply -f gitops/apps/costpilot-dev.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: costpilot-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/yash-deshpande24/CostPilot-AI-Powered.git
+    targetRevision: main
+    path: gitops/charts/costpilot
+    helm:
+      valueFiles:
+        - ../../envs/dev/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: costpilot
+  syncPolicy:
+    automated:
+      prune: true # delete things that are removed from Git
+      selfHeal: true # undo manual changes made with kubectl
+    syncOptions:
+      - CreateNamespace=true

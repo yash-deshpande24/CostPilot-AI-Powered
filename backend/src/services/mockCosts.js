@@ -1,5 +1,5 @@
 // Deterministic fake AWS bill so the UI works before a real AWS account is connected.
-// Week 2 replaces this with the AWS Cost Explorer client.
+// Every day gets its own seed, so a date always has the same numbers whatever range is asked for.
 function mulberry32(seed) {
   return function () {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
@@ -7,6 +7,12 @@ function mulberry32(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function seedFromDate(iso) {
+  let h = 2166136261;
+  for (const c of iso) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return h >>> 0;
 }
 
 const SERVICES = {
@@ -18,53 +24,38 @@ const SERVICES = {
   'CloudWatch': 7,
 };
 
-const round2 = (n) => Math.round(n * 100) / 100;
+const isoDay = (d) => d.toISOString().slice(0, 10);
 
-// Last N days ending today (unchanged behaviour).
-export function generateDailyCosts(days = 30) {
-  const rand = mulberry32(42);
-  const spikeDay = days - 9;
+// from and to are YYYY-MM-DD and both included.
+export function generateCostsBetween(from, to) {
+  const spike = new Date();
+  spike.setUTCDate(spike.getUTCDate() - 8); // one unusual day, 8 days ago
+  const spikeDate = isoDay(spike);
+
   const out = [];
-  for (let i = 0; i < days; i++) {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() - (days - 1 - i));
+  const d = new Date(from + 'T00:00:00Z');
+  const end = new Date(to + 'T00:00:00Z');
+  for (; d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const date = isoDay(d);
+    const rand = mulberry32(seedFromDate(date));
     const weekend = [0, 6].includes(d.getUTCDay()) ? 0.82 : 1;
     const byService = {};
     for (const [name, base] of Object.entries(SERVICES)) {
       let v = base * weekend * (0.93 + rand() * 0.14);
-      if (i === spikeDay && name === 'Amazon EC2') v *= 1.9;
-      if (i === spikeDay && name === 'Data Transfer') v *= 3.1;
-      byService[name] = round2(v);
+      if (date === spikeDate && name === 'Amazon EC2') v *= 1.9;
+      if (date === spikeDate && name === 'Data Transfer') v *= 3.1;
+      byService[name] = Math.round(v * 100) / 100;
     }
-    const total = round2(Object.values(byService).reduce((a, b) => a + b, 0));
-    out.push({ date: d.toISOString().slice(0, 10), total, byService });
+    const total = Math.round(Object.values(byService).reduce((a, b) => a + b, 0) * 100) / 100;
+    out.push({ date, total, byService });
   }
   return out;
 }
 
-// Any date range, "YYYY-MM-DD" to "YYYY-MM-DD" (inclusive).
-// Each day is seeded by its own date, so a day shows the same numbers
-// no matter which range you ask for. Days after today are marked projected.
-export function generateCostsBetween(from, to) {
-  const start = Date.parse(`${from}T00:00:00Z`);
-  const end = Date.parse(`${to}T00:00:00Z`);
-  const today = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
-  const out = [];
-  for (let t = start; t <= end; t += 86400000) {
-    const d = new Date(t);
-    const epochDay = t / 86400000;
-    const rand = mulberry32(epochDay * 7919);
-    const weekend = [0, 6].includes(d.getUTCDay()) ? 0.82 : 1;
-    const spike = epochDay % 29 === 0;
-    const byService = {};
-    for (const [name, base] of Object.entries(SERVICES)) {
-      let v = base * weekend * (0.93 + rand() * 0.14);
-      if (spike && name === 'Amazon EC2') v *= 1.9;
-      if (spike && name === 'Data Transfer') v *= 3.1;
-      byService[name] = round2(v);
-    }
-    const total = round2(Object.values(byService).reduce((a, b) => a + b, 0));
-    out.push({ date: d.toISOString().slice(0, 10), total, byService, projected: t > today });
-  }
-  return out;
+// The last "days" days, ending today.
+export function generateDailyCosts(days = 30) {
+  const to = new Date();
+  const from = new Date();
+  from.setUTCDate(to.getUTCDate() - (days - 1));
+  return generateCostsBetween(isoDay(from), isoDay(to));
 }

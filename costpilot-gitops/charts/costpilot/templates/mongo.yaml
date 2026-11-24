@@ -1,0 +1,56 @@
+{{- if .Values.mongodb.internal.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo
+  labels:
+    app.kubernetes.io/name: mongo
+    {{- include "costpilot.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mongo
+        {{- include "costpilot.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: mongo
+          image: {{ .Values.mongodb.internal.image | quote }}
+          ports:
+            - name: mongo
+              containerPort: 27017
+          readinessProbe:
+            tcpSocket:
+              port: mongo
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.mongodb.internal.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  labels:
+    app.kubernetes.io/name: mongo
+    {{- include "costpilot.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: mongo
+  ports:
+    - name: mongo
+      port: 27017
+      targetPort: mongo
+{{- end }}

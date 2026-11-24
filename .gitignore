@@ -10,3 +10,7 @@ dist/
 *.tfvars
 terraform/**/backend.hcl
 terraform/**/backend.hcl
+terraform/**/backend.hcl
+terraform/**/tfplan
+terraform/**/terraform.tfvars
+terraform/**/*.tfstate*

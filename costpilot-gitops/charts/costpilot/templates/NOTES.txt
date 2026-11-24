@@ -1,0 +1,9 @@
+CostPilot {{ .Chart.AppVersion }} is deployed.
+
+Open the app without exposing it to the internet:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/frontend 8090:80
+  then browse to http://localhost:8090
+
+Run a scan right now instead of waiting for the schedule:
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/costpilot-scan scan-now
+  kubectl -n {{ .Release.Namespace }} logs job/scan-now

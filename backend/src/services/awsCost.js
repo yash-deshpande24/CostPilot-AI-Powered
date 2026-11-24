@@ -37,17 +37,17 @@ export function toDaily(resultsByTime) {
 }
 
 // Cost Explorer is only served from us-east-1, whatever region your resources are in.
-export async function fetchAwsDailyCosts(days, client = new CostExplorerClient({ region: 'us-east-1' })) {
-  const end = new Date(); // End is exclusive, so this covers up to yesterday
-  const start = new Date();
-  start.setUTCDate(end.getUTCDate() - days);
+// from and to are YYYY-MM-DD and both included. Cost Explorer's End date is exclusive, so we add a day.
+export async function fetchAwsCostsBetween(from, to, client = new CostExplorerClient({ region: 'us-east-1' })) {
+  const end = new Date(to + 'T00:00:00Z');
+  end.setUTCDate(end.getUTCDate() + 1);
 
   const results = [];
   let token;
   do {
     const res = await client.send(
       new GetCostAndUsageCommand({
-        TimePeriod: { Start: isoDay(start), End: isoDay(end) },
+        TimePeriod: { Start: from, End: isoDay(end) },
         Granularity: 'DAILY',
         Metrics: ['UnblendedCost'],
         GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
@@ -60,4 +60,13 @@ export async function fetchAwsDailyCosts(days, client = new CostExplorerClient({
   } while (token);
 
   return toDaily(results);
+}
+
+// The last "days" complete days (up to yesterday).
+export async function fetchAwsDailyCosts(days, client) {
+  const to = new Date();
+  to.setUTCDate(to.getUTCDate() - 1);
+  const from = new Date();
+  from.setUTCDate(from.getUTCDate() - days);
+  return fetchAwsCostsBetween(isoDay(from), isoDay(to), client);
 }

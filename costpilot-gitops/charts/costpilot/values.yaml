@@ -1,0 +1,61 @@
+# Defaults. Each environment overrides these in gitops/envs/<env>/values.yaml.
+
+image:
+  registry: "" # for example 123456789012.dkr.ecr.ap-south-1.amazonaws.com
+  tag: "" # a unique tag per build. scripts/push-images.ps1 prints it.
+  pullPolicy: IfNotPresent
+
+serviceAccounts:
+  backend:
+    name: costpilot-backend
+    roleArn: "" # IAM role for the API pods (terraform output irsa_role_arns)
+  worker:
+    name: costpilot-worker
+    roleArn: "" # IAM role for the scan job
+
+backend:
+  # The web app's nginx sends /api to http://backend:5000, so this Service must be called "backend".
+  name: backend
+  repository: costpilot/backend
+  replicas: 1
+  port: 5000
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 384Mi }
+
+frontend:
+  repository: costpilot/frontend
+  replicas: 1
+  service:
+    type: ClusterIP # LoadBalancer creates a public AWS load balancer (extra cost)
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+config:
+  costSource: mock # mock = sample data, aws = real Cost Explorer through the pod's IAM role
+  awsRegion: ap-south-1
+  cacheHours: 24
+  anthropicModel: claude-haiku-5-5
+  aiDailyLimit: 30
+
+secrets:
+  # Created by hand and never stored in Git. Keys: JWT_SECRET, MONGO_URI, and optionally ANTHROPIC_API_KEY.
+  existingSecret: costpilot-secrets
+
+mongodb:
+  # A throwaway MongoDB inside the cluster for dev. Its data is lost whenever the pod restarts.
+  # For anything you care about, turn this off and use MongoDB Atlas in the secret's MONGO_URI.
+  internal:
+    enabled: false
+    image: mongo:7
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { memory: 512Mi }
+
+scanJob:
+  enabled: true
+  schedule: "0 2 * * *" # every day at 02:00 UTC
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 384Mi }

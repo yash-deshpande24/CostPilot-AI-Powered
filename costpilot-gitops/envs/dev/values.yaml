@@ -1,9 +1,18 @@
-namespace: costpilot-dev
-api:
-  replicas: 1
-worker:
-  replicas: 1
-frontend:
-  replicas: 1
-ingress:
-  enabled: false
+# Settings for the dev environment. ArgoCD deploys whatever is in this file.
+
+image:
+  registry: "208805233492.dkr.ecr.ap-south-1.amazonaws.com"
+  tag: 20261124-112948 # run scripts/push-images.ps1 and paste the tag it prints
+
+serviceAccounts:
+  backend:
+    roleArn: "arn:aws:iam::208805233492:role/costpilot-dev-backend"
+  worker:
+    roleArn: "arn:aws:iam::208805233492:role/costpilot-dev-worker"
+
+config:
+  costSource: mock # change to aws to read your real bill through the pod's IAM role
+
+mongodb:
+  internal:
+    enabled: true # throwaway database. Data is lost when the pod restarts.
