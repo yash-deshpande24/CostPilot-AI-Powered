@@ -13,7 +13,7 @@ CostPilot finds wasted AWS spend, explains it in plain English with AI, and open
 | 2 | AWS Cost Explorer, waste scanners, savings recommendations, new UI | Done |
 | 3 | Claude API: explain spikes, rank savings, chat with your bill | Done |
 | 4 | Terraform (VPC, EKS, ECR, S3, SQS, IAM) | Done |
-| 5 | Helm + ArgoCD on EKS, daily scan CronJob | Planned |
+| 5 | Helm + ArgoCD on EKS, daily scan CronJob | Done |
 | 6 | GitHub Actions + Jenkins, automatic PR generation | Planned |
 | 7 | Datadog, External Secrets, Argo Rollouts | Planned |
 | 8 | Polish, architecture diagram, demo video | Planned |
@@ -361,6 +361,181 @@ terraform destroy
 
 ---
 
+# Week 5: Helm and ArgoCD on EKS, daily scan CronJob
+
+**Goal:** run CostPilot on the EKS cluster from Week 4 using GitOps. The app is packaged as a Helm chart, its images live in ECR, and ArgoCD keeps the cluster in sync with what is in Git. A CronJob runs the waste scan every day.
+
+## What was added
+
+- **Helm chart** (`costpilot-gitops/charts/costpilot`) with templates for the backend API, the frontend, an in-cluster MongoDB, service accounts and the daily scan CronJob.
+- **Per-environment values** in `costpilot-gitops/envs/dev`, `staging` and `prod`. Dev is the one deployed. Each file overrides the chart defaults (image registry and tag, IAM roles, cost source).
+- **ArgoCD application** (`costpilot-gitops/apps/costpilot-dev.yaml`) that points at the chart and the dev values file. It syncs automatically, prunes resources removed from Git, heals manual changes and creates the `costpilot` namespace.
+- **Image push script** (`scripts/push-images.ps1`) that builds the backend and frontend images and pushes them to ECR with a unique time-based tag. ECR refuses to overwrite a tag, so every push needs a new one.
+- **Daily scan job** (`backend/src/jobs/`) run by a Kubernetes CronJob at 02:00 UTC. It reuses the backend image and the same scanners as the API. Includes tests (`backend/src/tests/scanJob.test.js`).
+- **IAM roles for service accounts (IRSA).** The API and the scan job each get their own read-only AWS role from Terraform, so no AWS keys are stored in the cluster.
+- **Safe defaults:** `costSource: mock` (sample data) so the first deploy needs no AWS billing access, a throwaway MongoDB inside the cluster, and a ClusterIP frontend service (no public load balancer, so no extra cost).
+
+## How it fits together
+
+```
+You push to GitHub  ->  ArgoCD sees the change  ->  renders the Helm chart + envs/dev/values.yaml
+                                                      -> creates / updates pods in namespace "costpilot"
+
+scripts/push-images.ps1  ->  ECR (costpilot/backend, costpilot/frontend)  <-  pods pull images from here
+```
+
+ArgoCD reads only what is on GitHub. A change that is not committed and pushed never reaches the cluster.
+
+## Week 5 files
+
+```
+costpilot-gitops/apps/costpilot-dev.yaml            ArgoCD Application for dev
+costpilot-gitops/charts/costpilot/Chart.yaml        chart metadata
+costpilot-gitops/charts/costpilot/values.yaml       chart defaults
+costpilot-gitops/charts/costpilot/templates/        backend, frontend, mongo, scan-cronjob,
+                                                    serviceaccounts, _helpers.tpl, NOTES.txt
+costpilot-gitops/envs/dev/values.yaml               dev settings: image registry + tag, IAM roles
+costpilot-gitops/envs/staging/values.yaml           staging settings (not deployed yet)
+costpilot-gitops/envs/prod/values.yaml              prod settings (not deployed yet)
+backend/src/jobs/                                   daily scan job
+backend/src/tests/scanJob.test.js                   scan job tests
+scripts/push-images.ps1                             build and push images to ECR
+docs/week5.md                                       Week 5 notes
+```
+
+## Before you start
+
+Week 4 must be finished: the EKS cluster is running and `kubectl get nodes` shows a `Ready` node. ArgoCD must be installed on the cluster, and the ECR repositories (`costpilot/backend`, `costpilot/frontend`) must exist. Run commands from the project root.
+
+## Step 1: Push the images to ECR
+
+Docker Desktop must be running.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\push-images.ps1
+```
+
+The script logs in to ECR, builds both images and pushes them. At the end it prints the `registry` and `tag` to use in the next step.
+
+*Why:* the cluster pulls images from ECR, not from your laptop. The login uses `cmd /c` for the pipe, because the PowerShell pipe adds characters to the password and ECR answers `400 Bad Request`.
+
+## Step 2: Set the image in the dev values
+
+Edit `costpilot-gitops/envs/dev/values.yaml`:
+
+```yaml
+image:
+  registry: "<account-id>.dkr.ecr.ap-south-1.amazonaws.com"
+  tag: <tag printed by push-images.ps1>
+```
+
+*Why:* this file is what ArgoCD deploys. Use the same tag for the backend and the frontend, and a new tag after every code change.
+
+## Step 3: Create the secret
+
+The chart reads its settings from a secret that is never stored in Git:
+
+```powershell
+kubectl create namespace costpilot
+$jwt = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 40 | ForEach-Object {[char]$_})
+kubectl -n costpilot create secret generic costpilot-secrets `
+  --from-literal=JWT_SECRET=$jwt `
+  --from-literal=MONGO_URI="mongodb://mongo:27017/costpilot"
+```
+
+Add `--from-literal=ANTHROPIC_API_KEY=...` only if you want real Claude answers.
+
+*Why:* without this secret the pods stop with `CreateContainerConfigError`. `mongo` is the Service name of the MongoDB in the cluster. If the namespace already exists, skip the first line.
+
+## Step 4: Commit and push
+
+```powershell
+git add -A
+git status --short
+git commit -m "Set dev image tag"
+git push origin main
+```
+
+Check `git status --short` before committing: no `.env`, `terraform.tfvars`, `backend.hcl`, `tfplan` or `*.tfstate` should be in the list.
+
+## Step 5: Deploy with ArgoCD
+
+If the application is not created yet:
+
+```powershell
+kubectl apply -f costpilot-gitops\apps\costpilot-dev.yaml
+```
+
+Then ask ArgoCD to refresh and check:
+
+```powershell
+kubectl -n argocd annotate application costpilot-dev argocd.argoproj.io/refresh=hard --overwrite
+kubectl -n argocd get applications
+kubectl -n costpilot get pods
+```
+
+Expected result after one or two minutes:
+
+```
+NAME            SYNC STATUS   HEALTH STATUS
+costpilot-dev   Synced        Healthy
+
+NAME                        READY   STATUS
+backend-...                 1/1     Running
+frontend-...                1/1     Running
+mongo-...                   1/1     Running
+```
+
+*Why:* **Synced** means the cluster matches Git. **Progressing** means pods are starting and not ready yet, which is normal for a minute or two. **Healthy** means every pod is ready.
+
+## Step 6: Open the app
+
+```powershell
+kubectl -n costpilot port-forward svc/frontend 8081:80
+```
+
+Open http://localhost:8081, create an account and sign in. Stop with Ctrl + C.
+
+## Step 7: Check the daily scan job
+
+```powershell
+kubectl -n costpilot get cronjob
+kubectl -n costpilot create job --from=cronjob/<cronjob-name> scan-test
+kubectl -n costpilot logs job/scan-test
+```
+
+*Why:* the CronJob runs at 02:00 UTC every day. The second command starts one run now so you do not have to wait. Get `<cronjob-name>` from the first command. Delete the test run with `kubectl -n costpilot delete job scan-test`.
+
+## Updating the app
+
+1. Change the code.
+2. Run `scripts\push-images.ps1` and copy the new tag.
+3. Put the new tag in `costpilot-gitops/envs/dev/values.yaml`.
+4. `git add -A`, `git commit`, `git push origin main`.
+5. ArgoCD picks it up automatically, or run the refresh command from Step 5.
+
+## Useful commands
+
+| Command | What it does |
+|---|---|
+| `kubectl -n argocd get applications` | Sync and health of the app |
+| `kubectl -n argocd get application costpilot-dev -o jsonpath="{.status.conditions}"` | The exact error when Sync is `Unknown` |
+| `kubectl -n argocd describe application costpilot-dev` | Path, repo, branch and events |
+| `kubectl -n costpilot get pods -w` | Watch pods start (Ctrl + C to stop) |
+| `kubectl -n costpilot logs deploy/backend --tail 30` | Last backend log lines |
+| `kubectl -n costpilot describe pod <pod-name>` | Events that explain pull and start errors |
+| `kubectl -n costpilot get deploy <name> -o jsonpath="{.spec.template.spec.containers[0].image}"` | The image a deployment really uses |
+
+## Safety
+
+- ArgoCD only reads GitHub, so every change goes through a commit. Nothing is changed by hand in the cluster, and `selfHeal` reverts manual edits.
+- Secrets are created by hand and never stored in Git.
+- The pods use IAM roles with read-only permissions, not access keys.
+- The dev MongoDB is a throwaway: its data is lost when the pod restarts. For data you care about, turn it off in the values file and use MongoDB Atlas in the secret's `MONGO_URI`.
+- The cluster costs money while it runs. Run `terraform destroy` (Week 4, Step 7) when you finish for the day.
+
+---
+
 # Running the project
 
 ## Services and URLs
@@ -542,15 +717,24 @@ powershell -ExecutionPolicy Bypass -File .\scripts\tf-validate.ps1
 | Nodes show `NotReady` | Wait a few minutes after apply, then check again |
 | S3 bucket name already exists | Bucket names are global. Change the name variable and apply again |
 | `terraform destroy` hangs on the VPC | Delete leftover load balancers or network interfaces created by Kubernetes, then retry |
+| ECR login `400 Bad Request` | PowerShell's pipe corrupts the password. Use `cmd /c "aws ecr get-login-password ... \| docker login ..."` as in `push-images.ps1` |
+| `argument --region: expected one argument` | Script variables like `$Region` were pasted into the terminal. Run the `.ps1` file instead |
+| `timeout awaiting response headers` on `docker push` | Network timeout. Run `docker push` again, finished layers are skipped |
+| ArgoCD `app path does not exist`, Sync `Unknown` | The chart is not on GitHub or the path is wrong. Commit and push `costpilot-gitops/`, and use path `costpilot-gitops/charts/costpilot` |
+| Pods `InvalidImageName` | Image registry or tag is empty or still a placeholder. Fix `envs/dev/values.yaml`, then push |
+| Pods `ImagePullBackOff` | Wrong repo name or tag, or the node role lacks `AmazonEC2ContainerRegistryReadOnly`. Run `kubectl describe pod` |
+| Pods `CreateContainerConfigError` | The `costpilot-secrets` secret is missing. Create it as in Week 5, Step 3 |
+| Health stays `Progressing` | Pods are not ready yet. Wait, then check `kubectl -n costpilot logs deploy/backend` |
+| `kubectl` times out | Your public IP changed. Update `api_allowed_cidrs` and run `terraform apply` |
+| `tfplan` shows in `git status` | `git rm --cached terraform/envs/dev/tfplan` and add `tfplan` to `.gitignore` |
 
 ## Project structure
 
 ```
-backend/          Express API, scanners, AI service, anomaly detection, tests
+backend/          Express API, scanners, AI service, anomaly detection, daily scan job (src/jobs), tests
 frontend/         React + Vite app, served by nginx in Docker
-costpilot-gitops/ Helm chart and Argo CD ApplicationSet
-docs/             Architecture notes, IAM policy, weekly notes (week2.md, week3.md, week4.md)
-scripts/          PowerShell smoke tests (Week 2 and 3) and tf-validate.ps1 (Week 4)
+costpilot-gitops/ Helm chart (charts/costpilot), ArgoCD apps and per-environment values (Week 5)
+docs/             Architecture notes, IAM policy, weekly notes (week2.md to week5.md)
+scripts/          Smoke tests (Weeks 2 and 3), tf-validate.ps1 (Week 4), push-images.ps1 (Week 5)
 terraform/        Infrastructure code: bootstrap/ (remote state) and envs/dev/ (Week 4)
-worker/           Scheduled scan worker (Week 5)
 ```
