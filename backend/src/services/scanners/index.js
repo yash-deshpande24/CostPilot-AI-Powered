@@ -3,7 +3,7 @@ import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { fakeEc2, fakeCloudWatch } from './mockAws.js';
 import { scanEbs } from './ebs.js';
 import { scanEip } from './eip.js';
-import { scanIdleEc2 } from './ec2idle.js';
+import { scanIdleEc2 } from './ec2Idle.js';
 
 const SCANNERS = [
   { name: 'ebs', type: 'unattached_ebs', run: scanEbs },

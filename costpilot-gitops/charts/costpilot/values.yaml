@@ -38,15 +38,8 @@ config:
   cacheHours: 24
   anthropicModel: claude-haiku-5-5
   aiDailyLimit: 30
-
-# Week 6: "Open PR" on the Savings tab.
-# The GitHub token is NOT here: add GITHUB_TOKEN to the costpilot-secrets secret.
-pr:
-  mode: "" # "" = github when a token is in the secret, "mock" = preview only
-  repo: yash-deshpande24/CostPilot-AI-Powered
-  baseBranch: main
-  dir: costpilot-gitops/remediations
-  dailyLimit: 10
+  githubRepo: "yash-deshpande24/CostPilot-AI-Powered" # where "Open PR" creates pull requests. The token goes in the secret as GITHUB_TOKEN.
+  githubBaseBranch: main
 
 secrets:
   # Created by hand and never stored in Git. Keys: JWT_SECRET, MONGO_URI, and optionally ANTHROPIC_API_KEY.
@@ -61,6 +54,11 @@ mongodb:
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { memory: 512Mi }
+
+smokeTest:
+  # After every ArgoCD sync, a short job checks the API, the web page and the link between them.
+  # If it fails, ArgoCD shows the sync as failed.
+  enabled: true
 
 scanJob:
   enabled: true

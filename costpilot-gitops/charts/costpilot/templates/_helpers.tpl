@@ -23,16 +23,12 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
   value: {{ .Values.config.anthropicModel | quote }}
 - name: AI_DAILY_LIMIT
   value: {{ .Values.config.aiDailyLimit | quote }}
+- name: APP_VERSION
+  value: {{ .Values.image.tag | quote }}
 - name: GITHUB_REPO
-  value: {{ .Values.pr.repo | quote }}
+  value: {{ .Values.config.githubRepo | quote }}
 - name: GITHUB_BASE_BRANCH
-  value: {{ .Values.pr.baseBranch | quote }}
-- name: PR_DIR
-  value: {{ .Values.pr.dir | quote }}
-- name: PR_MODE
-  value: {{ .Values.pr.mode | quote }}
-- name: PR_DAILY_LIMIT
-  value: {{ .Values.pr.dailyLimit | quote }}
+  value: {{ .Values.config.githubBaseBranch | quote }}
 {{- end -}}
 
 {{- define "costpilot.backendSecurity" -}}

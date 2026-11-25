@@ -59,6 +59,16 @@ module "ecr" {
   force_delete = var.force_destroy
 }
 
+# Lets GitHub Actions push images to the repositories above. Created with them, in one environment only.
+module "github_oidc" {
+  count           = var.create_ecr ? 1 : 0
+  source          = "../../modules/github-oidc"
+  name            = local.name
+  github_repo     = var.github_repo
+  repository_arns = values(module.ecr[0].repository_arns)
+  create_provider = var.create_github_oidc_provider
+}
+
 module "reports" {
   source        = "../../modules/s3"
   name          = local.name

@@ -9,18 +9,16 @@ import scanRoutes from './routes/scan.js';
 import aiRoutes from './routes/ai.js';
 import { costSource } from './services/costSource.js';
 import { aiMode } from './services/ai/config.js';
-import { requireAuth } from './middleware/auth.js';
-import Recommendation from './models/Recommendation.js';
-import createPrRouter from './routes/prs.cjs';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', source: costSource(), ai: aiMode() }));
+// /api/health is the same answer, reachable through the web app's nginx. The deploy smoke test uses it.
+app.get(['/health', '/api/health'], (_req, res) =>
+  res.json({ status: 'ok', version: process.env.APP_VERSION || 'dev', source: costSource(), ai: aiMode() })
+);
 app.use('/api/auth', authRoutes);
-// Week 6: pull request routes (POST /api/recommendations/:id/pr, GET /api/prs).
-app.use('/api', createPrRouter({ requireAuth, Recommendation }));
 app.use('/api/costs', costRoutes);
 app.use('/api/recommendations', recommendationRoutes);
 app.use('/api/scan', scanRoutes);

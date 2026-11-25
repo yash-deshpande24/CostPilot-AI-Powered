@@ -1,7 +1,8 @@
 import Recommendation from '../models/Recommendation.js';
 
 // Saves scan findings. Existing items keep their status (dismissed stays dismissed).
-// Items that used to be "new" but were not found this time become "resolved".
+// Items that were "new" but are no longer found become "resolved".
+// Items with an open pull request that are no longer found become "applied": the fix worked.
 export async function saveScanResults({ source, findings, scannedTypes, startedAt }) {
   let created = 0;
   let updated = 0;
@@ -23,14 +24,8 @@ export async function saveScanResults({ source, findings, scannedTypes, startedA
       updated++;
     }
   }
-  const res = await Recommendation.updateMany(
-    { source, type: { $in: scannedTypes }, status: 'new', lastSeenAt: { $lt: startedAt } },
-    { $set: { status: 'resolved' } }
-  );
-  // A finding with an open pull request that no longer exists usually means the fix landed.
-  const fixed = await Recommendation.updateMany(
-    { source, type: { $in: scannedTypes }, status: 'pr_opened', lastSeenAt: { $lt: startedAt } },
-    { $set: { status: 'applied', appliedAt: new Date() } }
-  );
-  return { created, updated, resolved: res.modifiedCount, applied: fixed.modifiedCount };
+  const notSeen = { source, type: { $in: scannedTypes }, lastSeenAt: { $lt: startedAt } };
+  const res = await Recommendation.updateMany({ ...notSeen, status: 'new' }, { $set: { status: 'resolved' } });
+  const applied = await Recommendation.updateMany({ ...notSeen, status: 'pr_opened' }, { $set: { status: 'applied' } });
+  return { created, updated, resolved: res.modifiedCount, applied: applied.modifiedCount };
 }

@@ -1,67 +1,30 @@
-// "Open pull request" button for one finding on the Savings tab.
-// Uses the app's api() helper, so the login token is handled for you.
 import { useState } from 'react';
 import { api } from '../api.js';
 
-export default function PrButton({ recommendationId, onDone }) {
-  const [state, setState] = useState('idle'); // idle | working | done | error
-  const [pr, setPr] = useState(null);
-  const [preview, setPreview] = useState(null);
+// "Open PR" for one waste finding. Creates a pull request with a runbook. Merging it does not change AWS.
+export default function PrButton({ rec }) {
+  const [url, setUrl] = useState(rec.prUrl || '');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   async function open() {
-    setState('working');
+    setBusy(true);
     setError('');
     try {
-      const data = await api(`/recommendations/${recommendationId}/pr`, { method: 'POST' });
-      setPr(data.pr);
-      setPreview(data.preview || null);
-      setState('done');
-      if (onDone) onDone(data.pr);
+      const r = await api(`/recommendations/${rec._id}/pr`, { method: 'POST' });
+      setUrl(r.url);
     } catch (e) {
-      // 409 means a pull request is already open: show it instead of an error.
-      if (e.status === 409 && e.data && e.data.pr) {
-        setPr(e.data.pr);
-        setState('done');
-        return;
-      }
       setError(e.message);
-      setState('error');
+    } finally {
+      setBusy(false);
     }
   }
 
-  if (state === 'done' && pr) {
-    return (
-      <span className="pr-cell">
-        {pr.url ? (
-          <a className="link" href={pr.url} target="_blank" rel="noreferrer">
-            PR #{pr.number}
-          </a>
-        ) : (
-          <span className="muted small" title="No GitHub token is set, so nothing was sent to GitHub.">
-            Preview only
-          </span>
-        )}
-        {preview && (
-          <details className="pr-preview">
-            <summary className="small">what would open</summary>
-            <pre>{`${preview.path}\n\n${preview.content}`}</pre>
-          </details>
-        )}
-      </span>
-    );
-  }
-
+  if (url) return <a className="link" href={url} target="_blank" rel="noopener noreferrer">View pull request</a>;
   return (
-    <span className="pr-cell">
-      <button className="link" onClick={open} disabled={state === 'working'}>
-        {state === 'working' ? 'Opening…' : 'Open PR'}
-      </button>
-      {state === 'error' && (
-        <span className="error small" role="alert">
-          {error}
-        </span>
-      )}
-    </span>
+    <>
+      <button className="ghost small-btn" onClick={open} disabled={busy}>{busy ? 'Opening…' : 'Open PR'}</button>
+      {error && <span className="error small-text">{error}</span>}
+    </>
   );
 }

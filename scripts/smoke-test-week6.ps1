@@ -1,6 +1,5 @@
-# End-to-end check of the Week 6 pull request API.
-# Run with the backend up:   powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-week6.ps1
-# Docker:                    powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-week6.ps1 -Base http://localhost:8080
+# End-to-end check of the Week 6 pull request API. Run with the containers up:
+#   powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-week6.ps1
 param([string]$Base = "http://localhost:5000")
 $ErrorActionPreference = "Stop"
 
@@ -18,25 +17,23 @@ Write-Host "OK  PR mode: $($status.mode), used today: $($status.usedToday)/$($st
 
 Invoke-RestMethod -Method Post -Uri "$Base/api/scan" -Headers $h | Out-Null
 $recs = Invoke-RestMethod -Uri "$Base/api/recommendations" -Headers $h
-$list = @($recs.items)
-if ($list.Count -eq 0) { throw "No recommendations found after the scan" }
+$list = if ($recs.recommendations) { $recs.recommendations } else { $recs }
+if (-not $list -or $list.Count -eq 0) { throw "No recommendations found after the scan" }
 $first = $list[0]
 $id = if ($first._id) { $first._id } else { $first.id }
 Write-Host "OK  found $($list.Count) findings, using $id"
 
 $pr = Invoke-RestMethod -Method Post -Uri "$Base/api/recommendations/$id/pr" -Headers $h
-Write-Host "OK  pull request: mode=$($pr.pr.mode) title=$($pr.pr.title)"
-if ($pr.pr.mode -eq 'mock') { Write-Host "    preview only: set GITHUB_TOKEN and GITHUB_REPO for real pull requests" }
+Write-Host "OK  PR created: mode=$($pr.pr.mode) title=$($pr.pr.title)"
 
 try {
   Invoke-RestMethod -Method Post -Uri "$Base/api/recommendations/$id/pr" -Headers $h | Out-Null
   throw "Second request should have been refused"
 } catch {
-  $code = $_.Exception.Response.StatusCode.value__
-  if ($code -ne 409) { throw }
+  if ($_.Exception.Response.StatusCode.value__ -ne 409) { throw }
   Write-Host "OK  second request refused with 409 (already open)"
 }
 
 $all = Invoke-RestMethod -Uri "$Base/api/prs" -Headers $h
-Write-Host "OK  /api/prs lists $(@($all.prs).Count) pull request(s)"
+Write-Host "OK  /api/prs lists $($all.prs.Count) pull request(s)"
 Write-Host "`nWeek 6 smoke test passed." -ForegroundColor Green

@@ -31,3 +31,8 @@ output "irsa_role_arns" {
   description = "Annotate the Kubernetes service accounts with these in Week 5."
   value       = module.iam.role_arns
 }
+
+output "github_ci_role_arn" {
+  description = "Set this as the AWS_ROLE_ARN variable in GitHub Actions."
+  value       = var.create_ecr ? module.github_oidc[0].role_arn : null
+}

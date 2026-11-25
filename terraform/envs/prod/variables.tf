@@ -111,3 +111,15 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 500
 }
+
+variable "github_repo" {
+  description = "The GitHub repository allowed to push images, written owner/name."
+  type        = string
+  default     = "yash-deshpande24/CostPilot-AI-Powered"
+}
+
+variable "create_github_oidc_provider" {
+  description = "Create the GitHub identity provider in AWS. Set false if your account already has one (the error says EntityAlreadyExists)."
+  type        = bool
+  default     = true
+}

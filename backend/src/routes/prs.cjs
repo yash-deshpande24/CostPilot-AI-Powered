@@ -1,6 +1,6 @@
 // Pull request routes. Mount with:  app.use('/api', createPrRouter({ requireAuth, Recommendation }))
 //   POST /api/recommendations/:id/pr   open a pull request for one finding
-//   GET  /api/prs                      your pull requests (last 50), refreshed from GitHub
+//   GET  /api/prs                      your pull requests (last 50)
 //   GET  /api/prs/status               mode (mock or github), repo, daily usage
 const express = require('express');
 const mongoose = require('mongoose');
@@ -8,7 +8,6 @@ const { getConfig: defaultGetConfig } = require('../services/pr/config.cjs');
 const { normalize } = require('../services/pr/normalize.cjs');
 const { buildPr } = require('../services/pr/buildPr.cjs');
 const { createPullRequest: defaultCreate, GitHubError } = require('../services/pr/github.cjs');
-const { syncRecords: defaultSync } = require('../services/pr/sync.cjs');
 
 function startOfUtcDay() {
   const d = new Date();
@@ -21,12 +20,10 @@ module.exports = function createPrRouter({
   PullRequestRecord = require('../models/PullRequestRecord.cjs'),
   getConfig = defaultGetConfig,
   createPullRequest = defaultCreate,
-  syncRecords = defaultSync,
 }) {
   if (!requireAuth || !Recommendation) throw new Error('createPrRouter needs requireAuth and Recommendation');
   const router = express.Router();
   const userId = (req) => req.user && (req.user.id || req.user._id || req.user.sub);
-  const latest = (user) => PullRequestRecord.find({ user }).sort({ createdAt: -1 }).limit(50).lean();
 
   router.get('/prs/status', requireAuth, async (req, res) => {
     const cfg = getConfig();
@@ -34,17 +31,8 @@ module.exports = function createPrRouter({
     res.json({ mode: cfg.mode, repo: cfg.repo || null, baseBranch: cfg.baseBranch, dir: cfg.dir, usedToday, dailyLimit: cfg.dailyLimit });
   });
 
-  // Reading the list also refreshes open pull requests, so a merge shows up as "applied".
   router.get('/prs', requireAuth, async (req, res) => {
-    const user = userId(req);
-    let rows = await latest(user);
-    try {
-      const { checked } = await syncRecords(getConfig(), rows, { PullRequestRecord, Recommendation });
-      if (checked > 0) rows = await latest(user);
-    } catch (e) {
-      // GitHub is optional: never break the list because it is unreachable.
-      console.error('PR sync skipped:', e && e.message);
-    }
+    const rows = await PullRequestRecord.find({ user: userId(req) }).sort({ createdAt: -1 }).limit(50).lean();
     res.json({ prs: rows });
   });
 
@@ -54,7 +42,7 @@ module.exports = function createPrRouter({
 
     const rec = await Recommendation.findById(id);
     if (!rec) return res.status(404).json({ error: 'Recommendation not found.' });
-    if (['dismissed', 'resolved', 'applied'].includes(rec.status)) {
+    if (['dismissed', 'resolved'].includes(rec.status)) {
       return res.status(400).json({ error: `This finding is ${rec.status}. There is nothing to fix.` });
     }
 
@@ -84,21 +72,8 @@ module.exports = function createPrRouter({
         number: result.number || undefined,
         url: result.url || undefined,
       });
-
-      // A real pull request moves the finding to "pr_opened" and stores its link.
-      if (result.mode === 'github' && result.url) {
-        rec.set({ status: 'pr_opened', prUrl: result.url, prNumber: result.number });
-        await rec.save();
-      }
-
       // In mock mode the preview is returned so the UI can show what would be opened.
-      res.status(201).json({
-        pr: saved,
-        preview:
-          result.mode === 'mock'
-            ? { title: plan.title, path: plan.path, content: plan.content, body: plan.body }
-            : undefined,
-      });
+      res.status(201).json({ pr: saved, preview: result.mode === 'mock' ? { title: plan.title, path: plan.path, content: plan.content, body: plan.body } : undefined });
     } catch (e) {
       if (e instanceof GitHubError) return res.status(e.status === 404 || e.status === 422 ? 502 : e.status || 502).json({ error: e.message });
       console.error('PR error:', e && e.message);

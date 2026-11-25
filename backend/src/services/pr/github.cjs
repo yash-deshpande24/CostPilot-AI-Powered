@@ -65,9 +65,4 @@ async function createPullRequest(cfg, plan, fetchImpl = globalThis.fetch) {
   return { mode: 'github', number: pr.number, url: pr.html_url, branch: plan.branch, path: plan.path, title: plan.title };
 }
 
-// Reads one pull request so the app can tell whether it was merged or closed.
-async function getPullRequest(cfg, number, fetchImpl = globalThis.fetch) {
-  return call(cfg, fetchImpl, 'GET', `/repos/${cfg.repo}/pulls/${number}`);
-}
-
-module.exports = { createPullRequest, getPullRequest, GitHubError };
+module.exports = { createPullRequest, GitHubError };

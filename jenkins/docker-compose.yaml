@@ -1,0 +1,14 @@
+# A local Jenkins for learning. Start it with:
+#   docker compose -f jenkins/docker-compose.yml up -d --build
+# Then open http://localhost:8085
+services:
+  jenkins:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8085:8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+
+volumes:
+  jenkins_home:
