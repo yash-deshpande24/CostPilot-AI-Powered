@@ -24,6 +24,6 @@ foreach ($name in "backend", "frontend") {
 }
 
 Write-Host ""
-Write-Host "Done. In gitops/envs/dev/values.yaml set:" -ForegroundColor Green
+Write-Host "Done. In costpilot-gitops/envs/dev/values.yaml set:" -ForegroundColor Green
 Write-Host "  registry: $registry"
 Write-Host "  tag:      $Tag"

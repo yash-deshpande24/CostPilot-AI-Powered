@@ -2,8 +2,8 @@
 
 ## How it fits together
 ```
-You push to GitHub  ->  ArgoCD (in the cluster) sees the change  ->  Helm renders gitops/charts/costpilot
-                                                                       with gitops/envs/dev/values.yaml
+You push to GitHub  ->  ArgoCD (in the cluster) sees the change  ->  Helm renders costpilot-gitops/charts/costpilot
+                                                                       with costpilot-gitops/envs/dev/values.yaml
                                                                   ->  the cluster is changed to match Git
 ```
 Nobody runs `kubectl apply` for the app. Git is the only way changes reach the cluster.
@@ -15,7 +15,7 @@ Secrets (JWT secret, database URL, API key) are created with `kubectl` and are n
 ## Steps
 Run from the project root in PowerShell, with the Week 4 cluster up and `kubectl get nodes` showing `Ready`.
 
-1. Check the prefilled values in `gitops/envs/dev/values.yaml`:
+1. Check the prefilled values in `costpilot-gitops/envs/dev/values.yaml`:
    ```powershell
    aws sts get-caller-identity --query Account --output text
    terraform -chdir=terraform/envs/dev output irsa_role_arns
@@ -24,7 +24,7 @@ Run from the project root in PowerShell, with the Week 4 cluster up and `kubectl
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\scripts\push-images.ps1
    ```
-3. Put the tag in `gitops/envs/dev/values.yaml` (replace `CHANGE_ME`), then:
+3. Put the tag in `costpilot-gitops/envs/dev/values.yaml` (replace `CHANGE_ME`), then:
    ```powershell
    git add .
    git commit -m "feat: week 5 - helm chart and argocd"
@@ -51,7 +51,7 @@ Run from the project root in PowerShell, with the Week 4 cluster up and `kubectl
    ```
 7. Tell ArgoCD about the app (once):
    ```powershell
-   kubectl apply -f gitops/apps/costpilot-dev.yaml
+   kubectl apply -f costpilot-gitops/apps/costpilot-dev.yaml
    kubectl -n argocd get applications
    kubectl -n costpilot get pods
    ```
@@ -69,7 +69,7 @@ Run from the project root in PowerShell, with the Week 4 cluster up and `kubectl
    Expect one JSON line with `"event":"scan_job"`.
 
 ## See GitOps working
-- **Change through Git:** set `frontend.replicas: 2` in `gitops/envs/dev/values.yaml`, push, and watch `kubectl -n costpilot get pods`. ArgoCD checks Git about every 3 minutes.
+- **Change through Git:** set `frontend.replicas: 2` in `costpilot-gitops/envs/dev/values.yaml`, push, and watch `kubectl -n costpilot get pods`. ArgoCD checks Git about every 3 minutes.
 - **Drift healing:** `kubectl -n costpilot scale deploy/frontend --replicas=5`. Within about a minute ArgoCD puts it back, because Git says otherwise.
 
 ## ArgoCD web page
@@ -81,10 +81,10 @@ Browse to https://localhost:8443 (accept the certificate warning), sign in as `a
 
 ## Use real Claude or real AWS data (optional)
 - Claude: recreate the secret with an extra `--from-literal=ANTHROPIC_API_KEY=...`, then `kubectl -n costpilot rollout restart deploy/backend`.
-- Real AWS data: set `config.costSource: aws` in `gitops/envs/dev/values.yaml` and push. The pods use the read-only IAM roles from Week 4 (no keys). Cost Explorer must be enabled on the account.
+- Real AWS data: set `config.costSource: aws` in `costpilot-gitops/envs/dev/values.yaml` and push. The pods use the read-only IAM roles from Week 4 (no keys). Cost Explorer must be enabled on the account.
 
 ## Clean up (important for cost)
-1. Remove the app first: `kubectl delete -f gitops/apps/costpilot-dev.yaml`
+1. Remove the app first: `kubectl delete -f costpilot-gitops/apps/costpilot-dev.yaml`
 2. If you ever set `frontend.service.type: LoadBalancer`, wait until that load balancer is gone. A leftover one blocks `terraform destroy`.
 3. Then `terraform destroy` in `terraform/envs/dev`.
 
@@ -101,4 +101,4 @@ Browse to https://localhost:8443 (accept the certificate warning), sign in as `a
 | Scan job `AccessDenied` | `costSource` is `aws` but the IAM role annotation in values.yaml is wrong. |
 
 ## Next: Week 6
-GitHub Actions builds and pushes images on every merge, and Jenkins promotes by committing the new tag to `gitops/envs/`, which ArgoCD then deploys.
+GitHub Actions builds and pushes images on every merge, and Jenkins promotes by committing the new tag to `costpilot-gitops/envs/`, which ArgoCD then deploys.

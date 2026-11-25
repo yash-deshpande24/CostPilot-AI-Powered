@@ -1,10 +1,39 @@
-namespace: costpilot-prod
-api:
+# Settings for the prod environment. ArgoCD deploys whatever is in this file.
+# Prod is NOT running yet: it needs its own cluster, secret and MongoDB Atlas URI.
+# Jenkins promotes a tested tag into this file; never edit the tag by hand.
+
+image:
+  registry: "208805233492.dkr.ecr.ap-south-1.amazonaws.com"
+  tag: "sha-0000000" # replaced by Jenkins / GitHub Actions promotion
+
+serviceAccounts:
+  backend:
+    roleArn: "arn:aws:iam::208805233492:role/costpilot-prod-backend"
+  worker:
+    roleArn: "arn:aws:iam::208805233492:role/costpilot-prod-worker"
+
+config:
+  costSource: aws
+
+pr:
+  mode: "" # add GITHUB_TOKEN to the prod secret to allow real pull requests
+  repo: yash-deshpande24/CostPilot-AI-Powered
+  baseBranch: main
+  dir: costpilot-gitops/remediations
+  dailyLimit: 10
+
+backend:
   replicas: 3
-worker:
-  replicas: 2
+
 frontend:
   replicas: 3
-ingress:
-  enabled: true
-  host: costpilot.example.com
+
+mongodb:
+  internal:
+    enabled: false # prod uses MongoDB Atlas through MONGO_URI in the secret
+
+secrets:
+  existingSecret: costpilot-secrets-prod
+
+scanJob:
+  schedule: "0 2 * * *"

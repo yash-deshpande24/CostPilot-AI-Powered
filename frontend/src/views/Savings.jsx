@@ -1,10 +1,11 @@
 import { usd2 } from '../format.js';
 import { Ring } from '../components/charts.jsx';
+import PrButton from '../components/PrButton.jsx';
 
 const TYPE_LABEL = { unattached_ebs: 'Unattached disks', unattached_eip: 'Unused IP addresses', idle_ec2: 'Idle servers' };
 const TYPE_COLOR = { unattached_ebs: '#6f74e8', unattached_eip: '#e9a23b', idle_ec2: '#3fb6a8' };
 
-export default function Savings({ recs, error, scanning, ranking, message, monthlyRate, onScan, onRank, onDismiss }) {
+export default function Savings({ recs, error, scanning, ranking, message, monthlyRate, onScan, onRank, onDismiss, onPrDone }) {
   const byType = {};
   (recs?.items || []).forEach((r) => { byType[r.type] = (byType[r.type] || 0) + r.monthlySavings; });
   const total = recs?.totalMonthlySavings || 0;
@@ -81,6 +82,11 @@ export default function Savings({ recs, error, scanning, ranking, message, month
                   </div>
                   <div className="rec-right">
                     <span className="amt">{usd2(r.monthlySavings)}/mo</span>
+                    {r.prUrl ? (
+                      <a className="link" href={r.prUrl} target="_blank" rel="noreferrer">PR open</a>
+                    ) : (
+                      <PrButton recommendationId={r._id} onDone={onPrDone} />
+                    )}
                     <button className="link" onClick={() => onDismiss(r._id)}>Dismiss</button>
                   </div>
                 </li>

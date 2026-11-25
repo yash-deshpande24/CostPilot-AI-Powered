@@ -175,6 +175,7 @@ export default function Dashboard({ onSignOut, theme, onToggleTheme }) {
             onScan={scan}
             onRank={rank}
             onDismiss={dismiss}
+            onPrDone={loadRecs}
           />
         )}
         {data && view === 'ask' && <Ask />}

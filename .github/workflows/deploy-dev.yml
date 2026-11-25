@@ -1,0 +1,127 @@
+name: Deploy dev
+
+# On every merge to main that changes app code:
+#   1. build the backend and frontend images
+#   2. push them to ECR with a unique tag
+#   3. write that tag into costpilot-gitops/envs/dev/values.yaml and commit it
+# ArgoCD sees the commit and rolls the new version out. No kubectl, no AWS keys.
+#
+# Needs the repository secret AWS_ROLE_ARN (docs/week6.md, Step 3). Until it is set the
+# workflow skips cleanly instead of failing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/deploy-dev.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write # lets GitHub prove its identity to AWS (OIDC, no stored keys)
+  contents: write # lets the job commit the new image tag
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is the deploy configured?
+        id: guard
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          if [ -z "$ROLE" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::AWS_ROLE_ARN is not set yet. Run terraform in terraform/github-oidc and add the secret (docs/week6.md, Step 3)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assume the GitHub Actions role
+        if: steps.guard.outputs.skip == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-actions-costpilot
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        if: steps.guard.outputs.skip == 'false'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Pick the image tag
+        if: steps.guard.outputs.skip == 'false'
+        id: tag
+        run: echo "tag=$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push images
+        if: steps.guard.outputs.skip == 'false'
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          for name in backend frontend; do
+            echo "== $REGISTRY/costpilot/$name:$TAG"
+            docker build -t "$REGISTRY/costpilot/$name:$TAG" "./$name"
+            docker push "$REGISTRY/costpilot/$name:$TAG"
+          done
+
+      - name: Write the tag into the dev values file
+        if: steps.guard.outputs.skip == 'false'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/set-image-tag.sh
+          ./scripts/set-image-tag.sh "$TAG" dev
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add costpilot-gitops/envs/dev/values.yaml
+          if git diff --cached --quiet; then
+            echo "Nothing to commit: the tag is already in Git."
+            exit 0
+          fi
+          git commit -m "ci: set dev image tag $TAG"
+          git push
+
+      - name: Summary
+        if: always()
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          SKIP: ${{ steps.guard.outputs.skip }}
+        run: |
+          {
+            echo "### CostPilot dev deploy"
+            echo ""
+            if [ "$SKIP" = "true" ]; then
+              echo "Skipped: the \`AWS_ROLE_ARN\` secret is not set yet."
+              echo ""
+              echo "Run \`terraform init && terraform apply\` in \`terraform/github-oidc\`, then add the"
+              echo "\`role_arn\` output as a repository secret. See docs/week6.md, Step 3."
+            else
+              echo "| | |"
+              echo "|---|---|"
+              echo "| Tag | \`$TAG\` |"
+              echo "| Backend | \`$REGISTRY/costpilot/backend:$TAG\` |"
+              echo "| Frontend | \`$REGISTRY/costpilot/frontend:$TAG\` |"
+              echo ""
+              echo "ArgoCD picks up the new tag in about 3 minutes:"
+              echo ""
+              echo '```'
+              echo "kubectl -n argocd get applications"
+              echo "kubectl -n costpilot get pods"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

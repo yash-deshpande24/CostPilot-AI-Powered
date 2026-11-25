@@ -307,3 +307,10 @@ body {
   .trend li { grid-template-columns: 1fr 100px; row-gap: 4px; }
   .trend .amt, .trend .chg { text-align: left; }
 }
+
+/* Week 6: pull request button and preview */
+.pr-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.pr-preview { max-width: 320px; }
+.pr-preview summary { cursor: pointer; }
+.pr-preview pre { margin: 6px 0 0; padding: 8px; max-height: 180px; overflow: auto; font-size: 11px;
+  background: var(--panel, #f4f5f9); border: 1px solid var(--line); border-radius: 6px; text-align: left; }

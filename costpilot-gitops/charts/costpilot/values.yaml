@@ -39,6 +39,15 @@ config:
   anthropicModel: claude-haiku-5-5
   aiDailyLimit: 30
 
+# Week 6: "Open PR" on the Savings tab.
+# The GitHub token is NOT here: add GITHUB_TOKEN to the costpilot-secrets secret.
+pr:
+  mode: "" # "" = github when a token is in the secret, "mock" = preview only
+  repo: yash-deshpande24/CostPilot-AI-Powered
+  baseBranch: main
+  dir: costpilot-gitops/remediations
+  dailyLimit: 10
+
 secrets:
   # Created by hand and never stored in Git. Keys: JWT_SECRET, MONGO_URI, and optionally ANTHROPIC_API_KEY.
   existingSecret: costpilot-secrets

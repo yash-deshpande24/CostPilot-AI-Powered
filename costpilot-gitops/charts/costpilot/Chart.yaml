@@ -2,5 +2,5 @@ apiVersion: v2
 name: costpilot
 description: CostPilot, the AI FinOps platform (API, web app, daily scan job)
 type: application
-version: 0.1.0
-appVersion: "0.3.0"
+version: 0.2.0
+appVersion: "0.6.0"

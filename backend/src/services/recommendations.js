@@ -27,5 +27,10 @@ export async function saveScanResults({ source, findings, scannedTypes, startedA
     { source, type: { $in: scannedTypes }, status: 'new', lastSeenAt: { $lt: startedAt } },
     { $set: { status: 'resolved' } }
   );
-  return { created, updated, resolved: res.modifiedCount };
+  // A finding with an open pull request that no longer exists usually means the fix landed.
+  const fixed = await Recommendation.updateMany(
+    { source, type: { $in: scannedTypes }, status: 'pr_opened', lastSeenAt: { $lt: startedAt } },
+    { $set: { status: 'applied', appliedAt: new Date() } }
+  );
+  return { created, updated, resolved: res.modifiedCount, applied: fixed.modifiedCount };
 }

@@ -1,0 +1,6 @@
+workflow-aggregator:latest
+git:latest
+credentials-binding:latest
+aws-credentials:latest
+timestamper:latest
+ws-cleanup:latest

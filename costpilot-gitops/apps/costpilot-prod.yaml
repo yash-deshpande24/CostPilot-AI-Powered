@@ -1,0 +1,26 @@
+# Prod ArgoCD Application. Manual sync on purpose: a person clicks Sync after review.
+# Apply it once with:  kubectl apply -f costpilot-gitops/apps/costpilot-prod.yaml
+# It needs its own cluster (or namespace), the costpilot-secrets-prod secret, and a real
+# MONGO_URI. Do not apply it on the dev cluster: 3 backend + 3 frontend pods need a bigger node.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: costpilot-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/yash-deshpande24/CostPilot-AI-Powered.git
+    targetRevision: main
+    path: costpilot-gitops/charts/costpilot
+    helm:
+      valueFiles:
+        - ../../envs/prod/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: costpilot-prod
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

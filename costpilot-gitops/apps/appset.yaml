@@ -1,33 +1,35 @@
+# Optional: creates the staging and prod Applications from one template.
+# Apply it only when those environments exist:  kubectl apply -f costpilot-gitops/apps/appset.yaml
+# Dev has its own Application (costpilot-dev.yaml) and is the only one running today.
+#
+# Both environments sync manually on purpose: a person clicks Sync in ArgoCD after review.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: costpilot
   namespace: argocd
 spec:
+  goTemplate: true
   generators:
     - list:
         elements:
-          - env: dev
           - env: staging
           - env: prod
   template:
     metadata:
-      name: 'costpilot-{{env}}'
+      name: 'costpilot-{{ .env }}'
     spec:
       project: default
       source:
-        repoURL: https://github.com/YOUR_ORG/costpilot-gitops.git
+        repoURL: https://github.com/yash-deshpande24/CostPilot-AI-Powered.git
         targetRevision: main
-        path: base/costpilot
+        path: costpilot-gitops/charts/costpilot
         helm:
           valueFiles:
-            - '../../envs/{{env}}/values.yaml'
+            - '../../envs/{{ .env }}/values.yaml'
       destination:
         server: https://kubernetes.default.svc
-        namespace: costpilot-{{env}}
+        namespace: 'costpilot-{{ .env }}'
       syncPolicy:
-        automated:
-          prune: true
-          selfHeal: true
         syncOptions:
           - CreateNamespace=true

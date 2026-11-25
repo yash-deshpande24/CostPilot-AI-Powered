@@ -13,7 +13,10 @@ const schema = new mongoose.Schema(
     detail: String,
     monthlySavings: { type: Number, default: 0 },
     status: { type: String, enum: STATUSES, default: 'new' },
-    prUrl: String, // filled in Week 6
+    prUrl: String, // filled in Week 6 when a pull request is opened
+    prNumber: Number,
+    prOpenedAt: Date,
+    appliedAt: Date,
     lastSeenAt: Date,
     // Week 3: filled by "Rank with AI"
     aiPriority: Number,

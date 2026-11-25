@@ -1,10 +1,35 @@
-namespace: costpilot-staging
-api:
+# Settings for the staging environment. Not deployed yet; dev is the live one.
+# Copy dev/values.yaml and change what you need when you create a staging cluster.
+
+image:
+  registry: "208805233492.dkr.ecr.ap-south-1.amazonaws.com"
+  tag: "sha-0000000" # set by the promotion pipeline
+
+serviceAccounts:
+  backend:
+    roleArn: "arn:aws:iam::208805233492:role/costpilot-staging-backend"
+  worker:
+    roleArn: "arn:aws:iam::208805233492:role/costpilot-staging-worker"
+
+config:
+  costSource: mock
+
+pr:
+  mode: "mock" # staging never opens real pull requests
+  repo: yash-deshpande24/CostPilot-AI-Powered
+  baseBranch: main
+  dir: costpilot-gitops/remediations
+  dailyLimit: 5
+
+backend:
   replicas: 2
-worker:
-  replicas: 1
+
 frontend:
   replicas: 2
-ingress:
-  enabled: true
-  host: staging.costpilot.example.com
+
+mongodb:
+  internal:
+    enabled: true
+
+secrets:
+  existingSecret: costpilot-secrets-staging

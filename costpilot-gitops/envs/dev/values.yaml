@@ -13,6 +13,15 @@ serviceAccounts:
 config:
   costSource: mock # change to aws to read your real bill through the pod's IAM role
 
+# Week 6: pull request settings for this environment.
+# Add GITHUB_TOKEN to the costpilot-secrets secret to switch from preview to real PRs.
+pr:
+  mode: ""
+  repo: yash-deshpande24/CostPilot-AI-Powered
+  baseBranch: main
+  dir: costpilot-gitops/remediations
+  dailyLimit: 10
+
 mongodb:
   internal:
     enabled: true # throwaway database. Data is lost when the pod restarts.

@@ -14,7 +14,7 @@ CostPilot finds wasted AWS spend, explains it in plain English with AI, and open
 | 3 | Claude API: explain spikes, rank savings, chat with your bill | Done |
 | 4 | Terraform (VPC, EKS, ECR, S3, SQS, IAM) | Done |
 | 5 | Helm + ArgoCD on EKS, daily scan CronJob | Done |
-| 6 | GitHub Actions + Jenkins, automatic PR generation | Planned |
+| 6 | GitHub Actions + Jenkins, automatic PR generation | Done |
 | 7 | Datadog, External Secrets, Argo Rollouts | Planned |
 | 8 | Polish, architecture diagram, demo video | Planned |
 
@@ -536,6 +536,62 @@ kubectl -n costpilot logs job/scan-test
 
 ---
 
+# Week 6: CI/CD and automatic pull requests
+
+**Goal:** every change is checked automatically, a merge to `main` ships new images to the cluster without typing `kubectl`, and CostPilot can open a pull request for a waste finding so a person reviews and approves the fix.
+
+## What was built
+
+- **GitHub Actions `CI`**: backend tests (36), frontend build, `terraform fmt` + `validate`, `helm lint`, and a Docker build of both images on every pull request and push to `main`.
+- **GitHub Actions `Deploy dev`**: on a merge that changes `backend/` or `frontend/`, builds both images, pushes them to ECR with a unique tag, then commits that tag to `costpilot-gitops/envs/dev/values.yaml`. ArgoCD deploys it. No AWS keys are stored: the job assumes an IAM role through GitHub's OIDC provider (`terraform/github-oidc/`).
+- **Jenkins** (`Jenkinsfile`, `jenkins/Dockerfile`): the same checks plus tag promotion. It commits `ci: promote <tag> to <env>` and asks for approval before prod. It never touches the cluster.
+- **Automatic pull requests**: `POST /api/recommendations/:id/pr` creates a branch, adds one remediation file under `costpilot-gitops/remediations/`, and opens a pull request. `GET /api/prs` refreshes the state, so a merged PR marks the finding `applied`. With no `GITHUB_TOKEN` it runs in preview (mock) mode.
+- **Savings tab**: an **Open PR** button per finding, with the PR link once it is open.
+
+## Week 6 files
+
+```
+.github/workflows/ci.yml                  tests, build, terraform, helm, docker build
+.github/workflows/deploy-dev.yml          build + push to ECR, commit the new tag
+Jenkinsfile                               checks + promotion pipeline
+jenkins/Dockerfile, plugins.txt           Jenkins image with git, node, docker, aws, terraform, helm
+terraform/github-oidc/                    OIDC role for GitHub Actions (no stored AWS keys)
+backend/src/services/pr/                  config, normalize, buildPr, github, sync
+backend/src/routes/prs.cjs                PR API
+backend/src/models/PullRequestRecord.cjs  one record per pull request
+backend/src/tests/pr.test.cjs             13 tests
+frontend/src/components/PrButton.jsx      the Open PR button
+scripts/set-image-tag.ps1 / .sh           safe tag change (validates, keeps comments)
+scripts/smoke-test-week6.ps1              end-to-end API check
+docs/week6.md                             full steps and troubleshooting
+```
+
+## Run it
+
+Full instructions, in order, are in **[docs/week6.md](docs/week6.md)**. The short version:
+
+```powershell
+# 1. local demo, no token needed (preview mode)
+docker compose up -d --build
+powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-week6.ps1
+
+# 2. real pull requests: add GITHUB_TOKEN to .env, then
+docker compose up -d --build backend
+
+# 3. CI: create the OIDC role once, add the AWS_ROLE_ARN secret, then push
+cd terraform\github-oidc; terraform init; terraform apply; cd ..\..
+git add .; git commit -m "feat: week 6"; git push
+
+# 4. Jenkins
+docker build -t costpilot-jenkins .\jenkins
+docker run -d --name jenkins --user root -p 8080:8080 -p 50000:50000 `
+  -v jenkins_home:/var/jenkins_home -v //var/run/docker.sock:/var/run/docker.sock costpilot-jenkins
+```
+
+Jenkins then runs `Jenkinsfile` from SCM: leave `IMAGE_TAG` empty for checks only, or paste a tag from the Actions summary to promote it.
+
+---
+
 # Running the project
 
 ## Services and URLs
@@ -733,8 +789,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\tf-validate.ps1
 ```
 backend/          Express API, scanners, AI service, anomaly detection, daily scan job (src/jobs), tests
 frontend/         React + Vite app, served by nginx in Docker
-costpilot-gitops/ Helm chart (charts/costpilot), ArgoCD apps and per-environment values (Week 5)
-docs/             Architecture notes, IAM policy, weekly notes (week2.md to week5.md)
-scripts/          Smoke tests (Weeks 2 and 3), tf-validate.ps1 (Week 4), push-images.ps1 (Week 5)
-terraform/        Infrastructure code: bootstrap/ (remote state) and envs/dev/ (Week 4)
+costpilot-gitops/ Helm chart (charts/costpilot), ArgoCD apps, per-environment values, remediations (Week 5-6)
+.github/          GitHub Actions: CI and deploy-dev (Week 6)
+jenkins/          Jenkins image with the tools the Jenkinsfile needs (Week 6)
+Jenkinsfile       Jenkins pipeline: checks, build/push, tag promotion (Week 6)
+docs/             Architecture notes, IAM policy, weekly notes (week2.md to week6.md)
+scripts/          Smoke tests, tf-validate.ps1, push-images.ps1 (Week 5), set-image-tag (Week 6)
+terraform/        Infrastructure code: bootstrap/ (remote state), envs/dev/ (Week 4), github-oidc/ (Week 6)
 ```
