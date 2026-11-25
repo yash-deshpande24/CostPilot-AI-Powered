@@ -2,7 +2,7 @@
 
 image:
   registry: "208805233492.dkr.ecr.ap-south-1.amazonaws.com"
-  tag: 20261124-112948 # run scripts/push-images.ps1 and paste the tag it prints
+  tag: "20261124-112948"
 
 serviceAccounts:
   backend:
