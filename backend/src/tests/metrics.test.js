@@ -1,46 +1,61 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import { connectDB } from './config/db.js';
-import authRoutes from './routes/auth.js';
-import costRoutes from './routes/costs.js';
-import recommendationRoutes from './routes/recommendations.js';
-import scanRoutes from './routes/scan.js';
-import aiRoutes from './routes/ai.js';
-import { costSource } from './services/costSource.js';
-import { aiMode } from './services/ai/config.js';
-import { metricsMiddleware } from './middleware/metrics.js';
-import { renderMetrics } from './services/metrics.js';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Counter, Histogram, registry, renderMetrics, resetMetrics } from '../services/metrics.js';
+import { metricsMiddleware } from '../middleware/metrics.js';
 
-const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(metricsMiddleware);
+test.beforeEach(() => resetMetrics());
 
-// Read by the Datadog agent inside the cluster. The web app's nginx does not proxy /metrics, so browsers cannot reach it.
-app.get('/metrics', (_req, res) => res.type('text/plain; version=0.0.4').send(renderMetrics()));
-
-// /api/health is the same answer, reachable through the web app's nginx. The deploy smoke test uses it.
-app.get(['/health', '/api/health'], (_req, res) =>
-  res.json({ status: 'ok', version: process.env.APP_VERSION || 'dev', source: costSource(), ai: aiMode() })
-);
-app.use('/api/auth', authRoutes);
-app.use('/api/costs', costRoutes);
-app.use('/api/recommendations', recommendationRoutes);
-app.use('/api/scan', scanRoutes);
-app.use('/api/ai', aiRoutes);
-
-app.use((err, _req, res, _next) => {
-  console.error(err);
-  res.status(500).json({ error: 'Something went wrong on our side. Try again.' });
+test('counter renders HELP, TYPE and labelled values', () => {
+  const c = new Counter('demo_total', 'Demo counter.', ['route']);
+  c.inc({ route: '/a' });
+  c.inc({ route: '/a' }, 2);
+  const out = c.render().join('\n');
+  assert.match(out, /# TYPE demo_total counter/);
+  assert.match(out, /demo_total\{route="\/a"\} 3/);
 });
 
-const port = process.env.PORT || 5000;
-connectDB()
-  .then(() =>
-    app.listen(port, () => console.log(`API listening on :${port} (cost source: ${costSource()}, ai: ${aiMode()})`))
-  )
-  .catch((e) => {
-    console.error('Could not connect to MongoDB:', e.message);
-    process.exit(1);
-  });
+test('label values are escaped', () => {
+  const c = new Counter('esc_total', 'Escape test.', ['route']);
+  c.inc({ route: 'a"b' });
+  assert.match(c.render().join('\n'), /route="a\\"b"/);
+});
+
+test('histogram fills cumulative buckets, sum and count', () => {
+  const h = new Histogram('lat_seconds', 'Latency.', [0.1, 1], ['route']);
+  h.observe({ route: '/x' }, 0.05);
+  h.observe({ route: '/x' }, 0.5);
+  const out = h.render().join('\n');
+  assert.match(out, /lat_seconds_bucket\{route="\/x",le="0.1"\} 1/);
+  assert.match(out, /lat_seconds_bucket\{route="\/x",le="1"\} 2/);
+  assert.match(out, /lat_seconds_bucket\{route="\/x",le="\+Inf"\} 2/);
+  assert.match(out, /lat_seconds_count\{route="\/x"\} 2/);
+});
+
+test('middleware records a request when the response finishes', () => {
+  const handlers = {};
+  const res = { statusCode: 200, on: (evt, fn) => { handlers[evt] = fn; } };
+  const req = { method: 'GET', baseUrl: '/api/costs', route: { path: '/' } };
+  let called = false;
+  metricsMiddleware(req, res, () => { called = true; });
+  assert.equal(called, true);
+  handlers.finish();
+  const out = renderMetrics();
+  assert.match(out, /costpilot_http_requests_total\{route="\/api\/costs\/",method="GET",status_class="2xx"\} 1/);
+  assert.match(out, /costpilot_http_request_duration_seconds_count\{route="\/api\/costs\/"\} 1/);
+});
+
+test('unmatched routes use a fixed label, not the raw URL', () => {
+  const handlers = {};
+  const res = { statusCode: 404, on: (evt, fn) => { handlers[evt] = fn; } };
+  metricsMiddleware({ method: 'GET', baseUrl: '', originalUrl: '/random/123' }, res, () => {});
+  handlers.finish();
+  const out = renderMetrics();
+  assert.match(out, /route="unmatched"/);
+  assert.doesNotMatch(out, /random\/123/);
+});
+
+test('resetMetrics clears everything', () => {
+  registry.aiCalls.inc({ mode: 'mock', result: 'ok' });
+  resetMetrics();
+  assert.doesNotMatch(renderMetrics(), /costpilot_ai_calls_total\{/);
+});
