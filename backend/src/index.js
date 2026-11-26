@@ -40,3 +40,5 @@ connectDB()
   });
 
 // Retry canary health check after analysis fix
+
+// Retry canary with full DNS name for health check
