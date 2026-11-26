@@ -1,8 +1,7 @@
 name: Deploy dev
 
-# On every merge to main that changes app code: build the images, push them to ECR,
-# then write the new image tag into costpilot-gitops/envs/dev/values.yaml.
-# ArgoCD sees that commit and rolls the new version out to the cluster.
+# Runs only on main. Builds the images, pushes them to ECR, then writes the new tag
+# into gitops/envs/dev/values.yaml. ArgoCD deploys that commit.
 on:
   push:
     branches: [main]
@@ -24,6 +23,8 @@ env:
 
 jobs:
   build-and-deploy:
+    # Never push a tag to main from a feature branch, even if someone clicks Run workflow there.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +46,7 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
+          set -euo pipefail
           for name in backend frontend; do
             docker build --pull -t "$REGISTRY/costpilot/$name:$TAG" "./$name"
             docker push "$REGISTRY/costpilot/$name:$TAG"
@@ -54,12 +56,23 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          # Keep the quotes so the tag is always read as a string.
-          sed -i -E "s|^(  tag:).*|\1 \"${TAG}\"|" costpilot-gitops/envs/dev/values.yaml
+          set -euo pipefail
+          VALUES="gitops/envs/dev/values.yaml"
+          test -f "$VALUES" || { echo "::error::$VALUES not found"; exit 1; }
+
+          # Replace the tag line under "image:" and keep the quotes so it is read as a string.
+          sed -i -E "s|^([[:space:]]*tag:).*$|\1 \"${TAG}\"|" "$VALUES"
+          grep -q "tag: \"${TAG}\"" "$VALUES" || { echo "::error::The tag line was not updated"; exit 1; }
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add costpilot-gitops/envs/dev/values.yaml
-          git commit -m "ci: set dev image tag ${TAG}" || { echo "Nothing to commit"; exit 0; }
-          # Jenkins may have pushed a commit since this run started, so rebase first.
+          git add "$VALUES"
+          if git diff --cached --quiet; then
+            echo "Tag is already ${TAG}. Nothing to commit."
+            exit 0
+          fi
+          git commit -m "ci: set dev image tag ${TAG}"
+
+          # Jenkins may have pushed a commit while this run was going, so rebase first.
           git pull --rebase origin main
           git push origin HEAD:main
