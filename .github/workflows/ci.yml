@@ -7,7 +7,7 @@ on:
     branches: [main]
     # Promotion commits only touch gitops/, so they must not rebuild images.
     paths-ignore:
-      - "gitops/**"
+      - "costpilot-gitops/**"
       - "docs/**"
       - "**.md"
 
@@ -79,8 +79,8 @@ jobs:
         run: |
           for env in dev prod; do
             echo "== $env"
-            helm lint gitops/charts/costpilot -f "gitops/envs/$env/values.yaml"
-            helm template costpilot gitops/charts/costpilot -f "gitops/envs/$env/values.yaml" \
+            helm lint costpilot-gitops/charts/costpilot -f "costpilot-gitops/envs/$env/values.yaml"
+            helm template costpilot costpilot-gitops/charts/costpilot -f "costpilot-gitops/envs/$env/values.yaml" \
               | ./kubeconform -strict -summary -kubernetes-version 1.35.0
           done
 
