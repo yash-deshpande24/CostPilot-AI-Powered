@@ -52,7 +52,7 @@ pipeline {
             git fetch "$REMOTE" "$BRANCH"
             git checkout -B "$BRANCH" FETCH_HEAD
 
-            VALUES="costpilot-gitops/envs/${ENVIRONMENT}/values.yaml"
+            VALUES="gitops/envs/${ENVIRONMENT}/values.yaml"
             test -f "$VALUES" || { echo "Missing $VALUES"; exit 1; }
             sed -i -E "s|^([[:space:]]*tag:[[:space:]]*).*$|\\1\\"${IMAGE_TAG}\\"|" "$VALUES"
             grep -n "tag:" "$VALUES"

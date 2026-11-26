@@ -66,6 +66,7 @@ jobs:
             terraform -chdir="$dir" validate
           done
 
+          - "gitops/**"
   gitops:
     name: Helm chart checks
     runs-on: ubuntu-latest
