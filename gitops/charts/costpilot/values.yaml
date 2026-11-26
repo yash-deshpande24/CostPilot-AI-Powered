@@ -35,7 +35,7 @@ frontend:
 config:
   costSource: mock # mock = sample data, aws = real Cost Explorer through the pod's IAM role
   awsRegion: ap-south-1
-  cacheHours: 24
+  cacheHours: 25
   anthropicModel: claude-haiku-5-5
   aiDailyLimit: 30
   githubRepo: "yash-deshpande24/CostPilot-AI-Powered" # where "Open PR" creates pull requests. The token goes in the secret as GITHUB_TOKEN.
