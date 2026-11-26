@@ -1,6 +1,6 @@
 # Applies the secret store and the Datadog secret. Apply AFTER external-secrets is Synced,
 # because these files use CRDs that the operator installs.
-# Apply once: kubectl apply -f gitops/platform/apps/platform-config.yaml
+# Apply once: kubectl apply -f costpilot-gitops/platform/apps/platform-config.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -11,7 +11,7 @@ spec:
   source:
     repoURL: https://github.com/yash-deshpande24/CostPilot-AI-Powered.git
     targetRevision: main
-    path: gitops/platform/config
+    path: costpilot-gitops/platform/config
   destination:
     server: https://kubernetes.default.svc
     namespace: default

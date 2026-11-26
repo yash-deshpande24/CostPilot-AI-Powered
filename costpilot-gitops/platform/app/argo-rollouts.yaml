@@ -1,5 +1,5 @@
 # Installs the Argo Rollouts controller, which runs the canary Rollout in the costpilot chart.
-# Apply once: kubectl apply -f gitops/platform/apps/argo-rollouts.yaml
+# Apply once: kubectl apply -f costpilot-gitops/platform/apps/argo-rollouts.yaml
 # VERIFY the version first: helm search repo argo/argo-rollouts --versions
 apiVersion: argoproj.io/v1alpha1
 kind: Application

@@ -1,5 +1,5 @@
 # Installs the Datadog agent (one per node) and the cluster agent. Values come from this repo.
-# Apply once: kubectl apply -f gitops/platform/apps/datadog.yaml
+# Apply once: kubectl apply -f costpilot-gitops/platform/apps/datadog.yaml
 # VERIFY the version first: helm search repo datadog/datadog --versions
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -14,7 +14,7 @@ spec:
       targetRevision: "3.160.2"
       helm:
         valueFiles:
-          - $values/gitops/platform/datadog/values.yaml
+          - $values/costpilot-gitops/platform/datadog/values.yaml
     - repoURL: https://github.com/yash-deshpande24/CostPilot-AI-Powered.git
       targetRevision: main
       ref: values
