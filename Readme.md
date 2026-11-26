@@ -3,7 +3,7 @@
 **AI-powered FinOps platform for AWS cost optimization.**
 CostPilot finds wasted AWS spend, explains it in plain English with AI, and opens a pull request on your Terraform/GitOps repo to fix it. After a human approves, ArgoCD applies the change.
 
-**Stack:** React, Node.js/Express, MongoDB, AWS (EKS, ECR, S3, SQS, Cost Explorer), Docker, Kubernetes, Terraform, GitHub Actions, Jenkins, ArgoCD (GitOps), Datadog, Claude API.
+**Stack:** React, Node.js/Express, MongoDB, AWS (EKS, ECR, S3, SQS, Cost Explorer), Docker, Kubernetes, Terraform, GitHub Actions, Jenkins, ArgoCD (GitOps), Argo Rollouts, External Secrets, Datadog, Claude API.
 
 ## Progress
 
@@ -15,7 +15,7 @@ CostPilot finds wasted AWS spend, explains it in plain English with AI, and open
 | 4 | Terraform (VPC, EKS, ECR, S3, SQS, IAM) | Done |
 | 5 | Helm + ArgoCD on EKS, daily scan CronJob | Done |
 | 6 | GitHub Actions + Jenkins, automatic PR generation | Done |
-| 7 | Datadog, External Secrets, Argo Rollouts | Planned |
+| 7 | Datadog, External Secrets, Argo Rollouts | Done |
 | 8 | Polish, architecture diagram, demo video | Planned |
 
 ---
@@ -44,7 +44,7 @@ backend/src/services/mockCosts.js sample cost generator
 backend/src/services/anomaly.js   spike detection
 frontend/src/pages/Login.jsx      sign in / create account
 frontend/src/pages/Dashboard.jsx  dashboard shell
-docker-compose.yml                frontend + backend + mongo
+docker-compose.yaml               frontend + backend + mongo
 ```
 
 ## Week 1 API
@@ -445,7 +445,7 @@ kubectl -n costpilot create secret generic costpilot-secrets `
 
 Add `--from-literal=ANTHROPIC_API_KEY=...` only if you want real Claude answers.
 
-*Why:* without this secret the pods stop with `CreateContainerConfigError`. `mongo` is the Service name of the MongoDB in the cluster. If the namespace already exists, skip the first line.
+*Why:* without this secret the pods stop with `CreateContainerConfigError`. `mongo` is the Service name of the MongoDB in the cluster. If the namespace already exists, skip the first line. From Week 7 onward, External Secrets creates this secret from AWS Secrets Manager instead.
 
 ## Step 4: Commit and push
 
@@ -500,19 +500,18 @@ Open http://localhost:8081, create an account and sign in. Stop with Ctrl + C.
 
 ```powershell
 kubectl -n costpilot get cronjob
-kubectl -n costpilot create job --from=cronjob/<cronjob-name> scan-test
+kubectl -n costpilot create job --from=cronjob/costpilot-scan scan-test
 kubectl -n costpilot logs job/scan-test
 ```
 
-*Why:* the CronJob runs at 02:00 UTC every day. The second command starts one run now so you do not have to wait. Get `<cronjob-name>` from the first command. Delete the test run with `kubectl -n costpilot delete job scan-test`.
+*Why:* the CronJob runs at 02:00 UTC every day. The second command starts one run now so you do not have to wait. Delete the test run with `kubectl -n costpilot delete job scan-test`.
 
 ## Updating the app
 
 1. Change the code.
-2. Run `scripts\push-images.ps1` and copy the new tag.
-3. Put the new tag in `costpilot-gitops/envs/dev/values.yaml`.
-4. `git add -A`, `git commit`, `git push origin main`.
-5. ArgoCD picks it up automatically, or run the refresh command from Step 5.
+2. Push the code to `main`. CI builds, scans and pushes images tagged `sha-xxxxxxx` (see Week 6).
+3. Run the Jenkins job `costpilot-promote` with that tag. It writes the tag into `costpilot-gitops/envs/dev/values.yaml`.
+4. ArgoCD deploys the new tag automatically, or run the refresh command from Step 5.
 
 ## Useful commands
 
@@ -529,7 +528,7 @@ kubectl -n costpilot logs job/scan-test
 ## Safety
 
 - ArgoCD only reads GitHub, so every change goes through a commit. Nothing is changed by hand in the cluster, and `selfHeal` reverts manual edits.
-- Secrets are created by hand and never stored in Git.
+- Secrets are never stored in Git.
 - The pods use IAM roles with read-only permissions, not access keys.
 - The dev MongoDB is a throwaway: its data is lost when the pod restarts. For data you care about, turn it off in the values file and use MongoDB Atlas in the secret's `MONGO_URI`.
 - The cluster costs money while it runs. Run `terraform destroy` (Week 4, Step 7) when you finish for the day.
@@ -538,23 +537,25 @@ kubectl -n costpilot logs job/scan-test
 
 # Week 6: CI/CD and automatic pull requests
 
-**Goal:** every change is checked automatically, a merge to `main` ships new images to the cluster without typing `kubectl`, and CostPilot can open a pull request for a waste finding so a person reviews and approves the fix.
+**Goal:** every change is checked automatically, a merge to `main` builds and scans images, and a promotion step moves a tested tag into the cluster without typing `kubectl`. CostPilot can also open a pull request for a waste finding so a person reviews and approves the fix.
 
 ## What was built
 
-- **GitHub Actions `CI`**: backend tests (36), frontend build, `terraform fmt` + `validate`, `helm lint`, and a Docker build of both images on every pull request and push to `main`.
-- **GitHub Actions `Deploy dev`**: on a merge that changes `backend/` or `frontend/`, builds both images, pushes them to ECR with a unique tag, then commits that tag to `costpilot-gitops/envs/dev/values.yaml`. ArgoCD deploys it. No AWS keys are stored: the job assumes an IAM role through GitHub's OIDC provider (`terraform/github-oidc/`).
-- **Jenkins** (`Jenkinsfile`, `jenkins/Dockerfile`): the same checks plus tag promotion. It commits `ci: promote <tag> to <env>` and asks for approval before prod. It never touches the cluster.
+- **GitHub Actions `CI`** (`.github/workflows/ci.yml`): backend tests, frontend build, `terraform fmt` and `validate`, Helm lint and kubeconform checks for dev and prod, a Docker build and Trivy scan of both images on every pull request and push to `main`, and a push of both images to ECR on `main`.
+- **OIDC login for AWS** (`terraform/github-oidc/`): GitHub Actions assumes an IAM role through its OIDC provider. No AWS keys are stored in GitHub.
+- **Jenkins** (`Jenkinsfile`, `jenkins/Dockerfile`): checks the input tag, then writes it into `costpilot-gitops/envs/<env>/values.yaml` and commits `chore(<env>): promote image <tag> [skip ci]`. It asks for approval before prod. It never builds images and never touches the cluster.
 - **Automatic pull requests**: `POST /api/recommendations/:id/pr` creates a branch, adds one remediation file under `costpilot-gitops/remediations/`, and opens a pull request. `GET /api/prs` refreshes the state, so a merged PR marks the finding `applied`. With no `GITHUB_TOKEN` it runs in preview (mock) mode.
 - **Savings tab**: an **Open PR** button per finding, with the PR link once it is open.
+
+> **One promotion path:** the earlier `deploy-dev.yml` workflow also committed tags, so it was removed. Jenkins is the only thing that changes the dev image tag. See Week 7, error 9.
 
 ## Week 6 files
 
 ```
-.github/workflows/ci.yml                  tests, build, terraform, helm, docker build
-.github/workflows/deploy-dev.yml          build + push to ECR, commit the new tag
+.github/workflows/ci.yml                  tests, build, scan, terraform, helm, push to ECR
 Jenkinsfile                               checks + promotion pipeline
 jenkins/Dockerfile, plugins.txt           Jenkins image with git, node, docker, aws, terraform, helm
+jenkins/docker-compose.yaml               runs Jenkins on http://localhost:8085
 terraform/github-oidc/                    OIDC role for GitHub Actions (no stored AWS keys)
 backend/src/services/pr/                  config, normalize, buildPr, github, sync
 backend/src/routes/prs.cjs                PR API
@@ -568,7 +569,7 @@ docs/week6.md                             full steps and troubleshooting
 
 ## Run it
 
-Full instructions, in order, are in **[docs/week6.md](docs/week6.md)**. The short version:
+Full instructions are in **[docs/week6.md](docs/week6.md)**. The short version:
 
 ```powershell
 # 1. local demo, no token needed (preview mode)
@@ -578,17 +579,310 @@ powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-week6.ps1
 # 2. real pull requests: add GITHUB_TOKEN to .env, then
 docker compose up -d --build backend
 
-# 3. CI: create the OIDC role once, add the AWS_ROLE_ARN secret, then push
-cd terraform\github-oidc; terraform init; terraform apply; cd ..\..
-git add .; git commit -m "feat: week 6"; git push
+# 3. CI role: create the OIDC role once, then add the AWS_ROLE_ARN repository VARIABLE
+cd terraform\envs\dev
+terraform output -raw github_ci_role_arn
+# Settings > Secrets and variables > Actions > Variables > New repository variable
 
 # 4. Jenkins
-docker build -t costpilot-jenkins .\jenkins
-docker run -d --name jenkins --user root -p 8080:8080 -p 50000:50000 `
-  -v jenkins_home:/var/jenkins_home -v //var/run/docker.sock:/var/run/docker.sock costpilot-jenkins
+docker compose -f jenkins/docker-compose.yaml up -d --build
+docker compose -f jenkins/docker-compose.yaml exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-Jenkins then runs `Jenkinsfile` from SCM: leave `IMAGE_TAG` empty for checks only, or paste a tag from the Actions summary to promote it.
+Once Jenkins is set up, create the `github-token` credential and the `costpilot-promote` pipeline job as described in `docs/week6.md`. Run it with `ENVIRONMENT=dev` and an `IMAGE_TAG` from a successful CI push (for example `sha-8baac83`).
+
+---
+
+# Week 7: Datadog, External Secrets, Argo Rollouts
+
+**Goal:** make the running app observable and safer to release. The API exposes metrics for Datadog, secrets move from hand-made Kubernetes secrets to AWS Secrets Manager (copied in by External Secrets), and the API ships as a canary with Argo Rollouts so a bad release is stopped automatically.
+
+## What was added
+
+- **Metrics endpoint** (`/metrics`) in the backend, read by the Datadog agent.
+- **Datadog** agent, dashboard and three monitors (`costpilot-gitops/platform/datadog/`).
+- **External Secrets Operator** that copies `costpilot-dev/app` and `costpilot-dev/datadog` from AWS Secrets Manager into the cluster every hour.
+- **Argo Rollouts** canary for the backend, with a health analysis before full rollout.
+- **Terraform** `app-secrets` module for the two secrets and the read-only role for External Secrets.
+- **CI hardening** that came out of the Week 7 chart changes: stricter Helm validation, a working Trivy scan, and OIDC login for the ECR push.
+
+## Week 7 files
+
+```
+backend/src/services/metrics.js                                 metrics registry (/metrics)
+backend/src/middleware/metrics.js                               records each request
+costpilot-gitops/platform/app/                                  Argo CD apps for External Secrets, Rollouts, Datadog
+costpilot-gitops/platform/config/                               ClusterSecretStore and Datadog ExternalSecret
+costpilot-gitops/platform/datadog/                              agent values, dashboard, monitors
+costpilot-gitops/charts/costpilot/templates/backend.yaml        Rollout (canary)
+costpilot-gitops/charts/costpilot/templates/analysis.yaml       AnalysisTemplate (health check)
+costpilot-gitops/charts/costpilot/templates/external-secret.yaml ExternalSecret
+terraform/modules/app-secrets/                                  Secrets Manager secrets and read role
+terraform/modules/github-oidc/main.tf                           trust policy uses owner and repo IDs in the sub claim
+scripts/put-secrets.ps1, put-datadog-keys.ps1                   store keys without printing them
+scripts/datadog-setup.ps1                                       create dashboard and monitors
+docs/week7.md                                                   full steps and troubleshooting
+```
+
+## Errors we hit and how we fixed them
+
+Each entry gives the symptom, the cause, and the fix. The commands are explained in the table at the end of this section.
+
+### 1. Helm check reports only one resource
+
+**Symptom:** `Summary: 1 resource found in 1 file` for a chart that renders about 12 resources.
+
+**Cause:** Windows PowerShell's `>` writes **UTF-16**. kubeconform cannot read it as YAML, so it only finds the first document.
+
+**Fix:** write the file through `cmd`, which writes plain UTF-8:
+
+```powershell
+cmd /c "helm template costpilot costpilot-gitops/charts/costpilot -f costpilot-gitops/envs/dev/values.yaml > rendered-dev.yaml"
+```
+
+Check the first line with `Get-Content rendered-dev.yaml -TotalCount 3`. It should read `---` and `# Source: ...`, with no gaps between letters.
+
+### 2. `.\kubeconform.exe` is not recognized
+
+**Symptom:** `The term '.\kubeconform.exe' is not recognized`.
+
+**Cause:** the binary was never downloaded into the project folder.
+
+**Fix:**
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-windows-amd64.zip" -OutFile "kubeconform.zip"
+Expand-Archive -Path "kubeconform.zip" -DestinationPath "." -Force
+Remove-Item "kubeconform.zip"
+.\kubeconform.exe -v
+```
+
+### 3. Argo Rollouts and External Secrets fail schema validation
+
+**Symptom:** kubeconform rejects `Rollout`, `AnalysisTemplate` or `ExternalSecret` because it has no built-in schema for them.
+
+**Cause:** these are CRDs (custom resources), which kubeconform does not ship with.
+
+**Fix:** add the community CRD catalog and skip resources that still have no schema:
+
+```powershell
+.\kubeconform.exe -strict -summary -ignore-missing-schemas -kubernetes-version 1.35.0 `
+  -schema-location default `
+  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' `
+  rendered-dev.yaml
+```
+
+Expected result for dev: `Valid: 12, Invalid: 0, Errors: 0`. For prod: `Valid: 11`, because the mongo resources are off there.
+
+### 4. A Helm error is hidden in CI
+
+**Symptom:** the job passes even though `helm template` failed.
+
+**Cause:** `helm template ... | kubeconform` only reports the exit code of the last command in the pipe.
+
+**Fix:** write the render to a file first, and turn on `set -e` so any failing command stops the step:
+
+```yaml
+set -e
+helm template costpilot costpilot-gitops/charts/costpilot \
+  -f "costpilot-gitops/envs/$env/values.yaml" > "rendered-$env.yaml"
+```
+
+### 5. Trivy action cannot be resolved
+
+**Symptom:** `Unable to resolve action aquasecurity/trivy-action@0.28.0`, then `Unable to resolve action aquasecurity/setup-trivy@v0.2.1`.
+
+**Cause:** the first tag needs a `v` prefix. After that, `trivy-action` depends on an internal helper action that GitHub could not download.
+
+**Fix:** stop using the action and run the official Trivy image directly on the runner, which already has Docker:
+
+```yaml
+- name: Scan for critical vulnerabilities
+  run: |
+    docker run --rm \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      aquasec/trivy:0.58.1 image \
+      --severity CRITICAL \
+      --ignore-unfixed \
+      --exit-code 1 \
+      costpilot/${{ matrix.image }}:ci
+```
+
+Check that the tag exists at https://hub.docker.com/r/aquasec/trivy/tags before you pin it.
+
+### 6. Push to ECR is skipped or fails at login
+
+**Symptom:** `Error: Add the AWS_ROLE_ARN variable in Settings > Secrets and variables > Actions > Variables`.
+
+**Cause:** the role ARN was not saved as a repository **variable**, so `vars.AWS_ROLE_ARN` is empty.
+
+**Fix:** open https://github.com/yash-deshpande24/CostPilot-AI-Powered/settings/variables/actions and add:
+
+- Name: `AWS_ROLE_ARN`
+- Value: `arn:aws:iam::208805233492:role/costpilot-dev-github-ci`
+
+Get the value with `terraform output -raw github_ci_role_arn` from `terraform/envs/dev`.
+
+### 7. Could not assume role with OIDC
+
+**Symptom:** `Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity`.
+
+**Cause:** GitHub's token now puts the numeric owner and repository IDs into the `sub` claim, for example `repo:owner@155445472/CostPilot-AI-Powered@1465199474:ref:refs/heads/main`. The trust policy expected the older `repo:owner/repo:ref:...` form, so the condition did not match.
+
+**Diagnose:**
+
+```powershell
+aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity --max-results 3 --query "Events[].CloudTrailEvent" --output text
+```
+
+Look for `"errorCode":"AccessDenied"` and the `sub` value in `userIdentity.principalId`.
+
+**Fix:** update the `sub` condition in `terraform/modules/github-oidc/main.tf` to the ID form, then apply:
+
+```hcl
+values = ["repo:yash-deshpande24@155445472/CostPilot-AI-Powered@1465199474:ref:refs/heads/main"]
+```
+
+```powershell
+cd terraform\envs\dev
+terraform plan -out tfplan
+terraform apply tfplan
+```
+
+**Do not** loosen `sub` to `repo:owner/repo:*` as a permanent fix. That allows every branch and pull request to assume the deploy role.
+
+### 8. Deploy workflow reads the role from the wrong place
+
+**Symptom:** a deploy workflow fails at the login step while `CI` succeeds.
+
+**Cause:** the workflow read `secrets.AWS_ROLE_ARN`, but the value is saved as a variable.
+
+**Fix:** use `vars.AWS_ROLE_ARN`:
+
+```yaml
+role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+```
+
+Keep only one source. Delete any secret named `AWS_ROLE_ARN` under the Secrets tab.
+
+### 9. Two workflows promote the same tag
+
+**Symptom:** `values.yaml` alternates between `sha-` tags and timestamp tags, and pushes are rejected.
+
+**Cause:** Jenkins and the `deploy-dev.yml` workflow both commit tags to `costpilot-gitops/envs/dev/values.yaml` on `main`.
+
+**Fix:** keep one promotion path. This project uses Jenkins, so `deploy-dev.yml` was removed:
+
+```powershell
+git rm .github/workflows/deploy-dev.yml
+git commit -m "ci: remove deploy-dev, promotion goes through Jenkins"
+git pull --rebase origin main
+git push origin main
+```
+
+If a file cannot be removed because it is open or synced by OneDrive, close the editor, delete it with `Remove-Item`, and stage the deletion with `git add`.
+
+### 10. Push rejected: "fetch first"
+
+**Symptom:** `! [rejected] main -> main (fetch first)`.
+
+**Cause:** Jenkins committed `chore(dev): promote image ...` to `main` after your last pull.
+
+**Fix:** rebase your commit on top of the remote, then push. Do not use `--force`, because that would delete Jenkins' commit.
+
+```powershell
+git pull --rebase origin main
+git push origin main
+```
+
+### 11. ECR rejects a re-run
+
+**Symptom:** `tag already exists` when pushing.
+
+**Cause:** the ECR repositories use **immutable** tags. A tag is named after the commit, so re-running an old commit produces the same tag.
+
+**Fix:** push a new commit. Re-running a job on the same commit does not work.
+
+### 12. Trivy fails on a real vulnerability
+
+**Symptom:** the scan step shows rows with `CRITICAL`.
+
+**Fix:** read the Library and Fixed Version columns.
+
+- If the package is in the base OS, rebuild on a newer base image (`--pull` is already set).
+- If the package is in `node_modules`, run `npm audit fix` in `backend/` (or `frontend/`) and commit `package-lock.json`.
+
+### 13. Jenkins login and setup
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Compose file ... docker-compose.yml is invalid` | The file is named `docker-compose.yaml` | Use `-f jenkins/docker-compose.yaml` |
+| `initialAdminPassword: No such file or directory` | Setup was already finished | Sign in with your admin user, or reset (below) |
+| `Invalid username or password` | No account matches | Reset Jenkins (below) |
+
+Reset Jenkins. This deletes the Jenkins job and credentials, not the repo:
+
+```powershell
+docker compose -f jenkins/docker-compose.yaml down -v
+docker compose -f jenkins/docker-compose.yaml up -d
+docker compose -f jenkins/docker-compose.yaml exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+```
+
+### 14. Jenkins build fails with `IMAGE_TAG '' is not valid`
+
+**Cause:** the first run has no parameters yet.
+
+**Fix:** run **Build with Parameters** and enter a tag that exists in ECR, such as `sha-8baac83`. Do not promote before the CI push succeeds, or ArgoCD will try to pull an image that does not exist.
+
+### 15. Node.js 20 deprecation warning
+
+**Symptom:** `Node.js 20 is deprecated ... actions/checkout@v4`.
+
+**Fix:** this is a warning, not an error. To remove it, change `actions/checkout@v4` to `@v5` in `ci.yml` after checking the action's README.
+
+## Verify Week 7
+
+```powershell
+kubectl -n argocd get applications
+kubectl -n external-secrets get pods
+kubectl -n argo-rollouts get pods
+kubectl -n costpilot get externalsecret costpilot-secrets
+kubectl -n costpilot get rollout backend
+kubectl -n costpilot get analysisrun
+kubectl -n datadog get pods
+```
+
+Expected: every application `Synced` and `Healthy`, the ExternalSecret shows `SecretSynced`, and the rollout reaches `Healthy` with the promoted tag.
+
+**Result (verified):** all applications Synced and Healthy, ExternalSecret SecretSynced, backend rollout Healthy with tag `<your tag>`, Datadog metrics visible for `costpilot_http_requests_total`.
+
+## Commands explained
+
+| Command | What it does |
+|---|---|
+| `cmd /c "... > file"` | Runs the command through `cmd`, so the output is plain UTF-8 |
+| `Get-Content file -TotalCount 3` | Shows the first lines of a file |
+| `Expand-Archive` | Unzips a file |
+| `helm template` | Renders the chart to plain YAML without installing anything |
+| `kubeconform -strict` | Rejects unknown fields |
+| `-ignore-missing-schemas` | Skips resources that have no schema, instead of failing |
+| `-schema-location` | Adds the CRD catalog so Rollouts and ExternalSecrets are checked |
+| `docker run aquasec/trivy:0.58.1 image` | Scans a local image for vulnerabilities |
+| `--exit-code 1` | Fails the step when a finding matches |
+| `aws cloudtrail lookup-events` | Shows why AWS denied a role assumption |
+| `terraform output -raw` | Prints one output value with no quotes |
+| `git pull --rebase origin main` | Puts your commits on top of the remote history |
+| `git rm` | Stages a file deletion |
+| `docker compose ... down -v` | Stops the containers and deletes their volumes |
+
+## Known troubleshooting (from docs/week7.md)
+
+| Problem | Fix |
+|---|---|
+| ExternalSecret `AccessDenied` | Check the role ARN in `external-secrets.yaml` and the policy in `terraform/modules/app-secrets` |
+| ClusterSecretStore `InvalidProviderConfig` | The service account has no role annotation. Check ArgoCD has synced the platform app |
+| Costpilot app `OutOfSync` with "no matches for kind Rollout" | Install `argo-rollouts` before the app |
+| Datadog shows no `costpilot_*` metrics | Generate traffic, wait five minutes, check the openmetrics check in `agent status` |
 
 ---
 
@@ -602,6 +896,7 @@ Jenkins then runs `Jenkinsfile` from SCM: leave `IMAGE_TAG` empty for checks onl
 | Frontend dev server (Vite) | 5173 | http://localhost:5173 | Only when running without Docker |
 | Backend (Express API) | 5000 | http://localhost:5000 | Health check: http://localhost:5000/health |
 | MongoDB | 27017 | `mongodb://localhost:27017/costpilot` | See the Database section for Docker |
+| Jenkins | 8085 | http://localhost:8085 | Promotion step only (Week 6) |
 | Claude API | 443 | https://api.anthropic.com | Called by the backend only, and only when a key is set |
 
 ```
@@ -751,7 +1046,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\tf-validate.ps1
 
 | Problem | Fix |
 |---|---|
-| `no configuration file provided: not found` | Run the command from the project root, where `docker-compose.yml` lives |
+| `no configuration file provided: not found` | Run the command from the project root, where `docker-compose.yaml` lives |
 | Backend keeps restarting | `docker compose logs backend`. File names are case sensitive in Linux containers (`ec2Idle.js`, not `ec2idle.js`) |
 | "Request failed." on every tab | Backend is down or you are not signed in. Check `docker compose ps` |
 | Sent back to sign-in | Token expired or from an older version. Clear site data and register again |
@@ -783,17 +1078,20 @@ powershell -ExecutionPolicy Bypass -File .\scripts\tf-validate.ps1
 | Health stays `Progressing` | Pods are not ready yet. Wait, then check `kubectl -n costpilot logs deploy/backend` |
 | `kubectl` times out | Your public IP changed. Update `api_allowed_cidrs` and run `terraform apply` |
 | `tfplan` shows in `git status` | `git rm --cached terraform/envs/dev/tfplan` and add `tfplan` to `.gitignore` |
+| Push rejected, "fetch first" | Run `git pull --rebase origin main`, then push again. See Week 7, error 10 |
+| ECR "tag already exists" | Tags are immutable. Push a new commit instead of re-running an old one |
 
 ## Project structure
 
 ```
 backend/          Express API, scanners, AI service, anomaly detection, daily scan job (src/jobs), tests
 frontend/         React + Vite app, served by nginx in Docker
-costpilot-gitops/ Helm chart (charts/costpilot), ArgoCD apps, per-environment values, remediations (Week 5-6)
-.github/          GitHub Actions: CI and deploy-dev (Week 6)
-jenkins/          Jenkins image with the tools the Jenkinsfile needs (Week 6)
-Jenkinsfile       Jenkins pipeline: checks, build/push, tag promotion (Week 6)
-docs/             Architecture notes, IAM policy, weekly notes (week2.md to week6.md)
-scripts/          Smoke tests, tf-validate.ps1, push-images.ps1 (Week 5), set-image-tag (Week 6)
-terraform/        Infrastructure code: bootstrap/ (remote state), envs/dev/ (Week 4), github-oidc/ (Week 6)
+costpilot-gitops/ Helm chart (charts/costpilot), ArgoCD apps, platform config, per-environment values, remediations
+.github/          GitHub Actions: CI (ci.yml) only
+jenkins/          Jenkins image and compose file for the promotion step (Week 6)
+Jenkinsfile       Jenkins pipeline: input check, tag promotion (Week 6)
+docs/             Architecture notes, IAM policy, weekly notes (week2.md to week7.md)
+scripts/          Smoke tests, tf-validate.ps1, push-images.ps1, put-secrets.ps1, datadog-setup.ps1
+terraform/        Infrastructure code: bootstrap/ (remote state), envs/dev/ and envs/prod/,
+                  modules/ (VPC, EKS, ECR, IAM, S3, SQS, budget, github-oidc, app-secrets)
 ```
