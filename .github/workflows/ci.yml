@@ -133,6 +133,19 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      # TEMPORARY: prints the OIDC claims (not the token) so we can compare them with the trust policy.
+      # Remove this step once the login works.
+      - name: Debug OIDC claims
+        run: |
+          set -e
+          TOKEN=$(curl -sSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)
+          PAYLOAD=$(echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+')
+          PAD=$(( (4 - ${#PAYLOAD} % 4) % 4 ))
+          PAYLOAD="${PAYLOAD}$(printf '%*s' "$PAD" '' | tr ' ' '=')"
+          echo "$PAYLOAD" | base64 -d | jq '{sub, aud, ref, event_name, repository, job_workflow_ref}'
+
       - name: Check configuration
         env:
           ROLE: ${{ vars.AWS_ROLE_ARN }}
