@@ -1,0 +1,48 @@
+# Five-minute demo script
+
+Goal: show that the platform finds waste, explains it, opens a pull request, and ships safely.
+
+## Before recording
+- Dev cluster running, app `Synced` and `Healthy` in ArgoCD.
+- The Datadog dashboard open in a second tab.
+- A browser on the CostPilot dashboard, signed in, with "Sample data" showing.
+- Close notifications and clear the chat history in Ask AI.
+
+## Script
+
+**0:00. Problem (20 seconds)**
+"Cloud bills grow quietly. This is CostPilot. It finds the waste, explains it with AI, and fixes it through Git, not by clicking in a console."
+
+**0:20. Overview tab (45 seconds)**
+- Point at the forecast ring and the "on pace for" number.
+- Hover a bar, then click the orange day.
+- Click **Explain this**. Read the summary aloud. "Claude wrote this from our numbers, and it says what to check."
+
+**1:05. Savings tab (60 seconds)**
+- Click **Scan now**. "The scanners look for disks nobody uses, IP addresses nobody uses, and idle servers."
+- Click **Rank with AI**. Point at the numbered priorities and the risk chips.
+- Click **Open PR** on the top item. Open the pull request on GitHub.
+- Show the runbook: the check, the snapshot before delete, the undo command.
+- "Merging this changes nothing in AWS. A person decides."
+
+**2:05. Ask AI (30 seconds)**
+- Type "Which service costs the most?" and show the answer.
+- "The AI only advises. It has no AWS access."
+
+**2:35. The delivery path (90 seconds)**
+- Show the GitHub Actions run: tests, Terraform and Helm checks, image scan, push to ECR.
+- Show Jenkins: the promote job, with the image tag as the parameter.
+- Show the ArgoCD page: the app `Synced`, the rollout moving through its canary steps.
+
+**4:05. Datadog and the safety net (45 seconds)**
+- Show the dashboard: request rate, error rate, Claude tokens.
+- "If the error rate goes above five percent, this alert fires, and the runbook says what to do."
+- Mention the canary analysis: "A bad release is stopped on the canary, before most users see it."
+
+**4:50. Close (10 seconds)**
+"Everything is in Git, reviewed, and reversible. The code and the runbooks are in the repository."
+
+## Tips
+- Record at 1080p, with the browser zoomed to 110%.
+- If something fails live, say so and show the runbook. That is a good demo too.
+- Keep the terminal font large, and hide anything with secrets on screen.

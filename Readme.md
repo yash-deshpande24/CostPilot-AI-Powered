@@ -1,1097 +1,126 @@
 # CostPilot
 
-**AI-powered FinOps platform for AWS cost optimization.**
-CostPilot finds wasted AWS spend, explains it in plain English with AI, and opens a pull request on your Terraform/GitOps repo to fix it. After a human approves, ArgoCD applies the change.
+**An AI-powered FinOps platform for AWS. It finds wasted spend, explains it in plain English with Claude, and opens pull requests that fix it. Every change goes through Git, a review, and a canary release.**
 
-**Stack:** React, Node.js/Express, MongoDB, AWS (EKS, ECR, S3, SQS, Cost Explorer), Docker, Kubernetes, Terraform, GitHub Actions, Jenkins, ArgoCD (GitOps), Argo Rollouts, External Secrets, Datadog, Claude API.
+![stack](https://img.shields.io/badge/stack-React%20%7C%20Node%20%7C%20MongoDB%20%7C%20AWS%20EKS-1b6f73)
+![gitops](https://img.shields.io/badge/deploy-GitOps%20(ArgoCD)-4a4fcf)
+![ci](https://img.shields.io/badge/CI-GitHub%20Actions-2088ff)
+![iac](https://img.shields.io/badge/IaC-Terraform-7b42bc)
 
-## Progress
+## What it does
+1. **Shows your AWS spend**: daily totals, a month-end forecast against your budget, spend by service, and the unusual days.
+2. **Explains a spike**: "Explain this" writes the likely causes and what to check, from your own numbers.
+3. **Finds waste**: unattached disks, unused Elastic IPs and idle servers, each with an estimated monthly saving.
+4. **Ranks the fixes**: Claude orders them by saving, risk and effort.
+5. **Opens a pull request**: a runbook with the check, fix and undo commands. Merging it does not change AWS. A person applies the fix.
+6. **Ships safely**: a canary release that rolls back on its own if the health check fails.
 
-| Week | Focus | Status |
-|---|---|---|
-| 1 | Login, mock cost dashboard, spike detection, Docker Compose | Done |
-| 2 | AWS Cost Explorer, waste scanners, savings recommendations, new UI | Done |
-| 3 | Claude API: explain spikes, rank savings, chat with your bill | Done |
-| 4 | Terraform (VPC, EKS, ECR, S3, SQS, IAM) | Done |
-| 5 | Helm + ArgoCD on EKS, daily scan CronJob | Done |
-| 6 | GitHub Actions + Jenkins, automatic PR generation | Done |
-| 7 | Datadog, External Secrets, Argo Rollouts | Done |
-| 8 | Polish, architecture diagram, demo video | Planned |
+## Architecture
 
----
-
-# Week 1: Foundation
-
-**Goal:** a working app you can run with one command: login, a cost dashboard on sample data, and spike detection.
-
-## What was built
-
-- **React frontend** (Vite) served by nginx in Docker.
-- **Express API** with JWT login (`register`, `login`, `me`). Passwords are hashed with bcrypt.
-- **MongoDB** for users.
-- **Mock cost data**: a deterministic fake AWS bill (EC2, EKS, RDS, S3, Data Transfer, CloudWatch) with a planted spike, so the UI works without an AWS account.
-- **Spike detection**: a day is flagged when it is more than 35% above the average of the previous 7 days. The API also names the service that drove it.
-- **Docker Compose** that starts frontend, backend and MongoDB together.
-
-## Week 1 files
-
-```
-backend/src/index.js              API entry point, /health
-backend/src/routes/auth.js        register, login, me
-backend/src/middleware/auth.js    JWT check (requireAuth)
-backend/src/models/User.js        user model
-backend/src/services/mockCosts.js sample cost generator
-backend/src/services/anomaly.js   spike detection
-frontend/src/pages/Login.jsx      sign in / create account
-frontend/src/pages/Dashboard.jsx  dashboard shell
-docker-compose.yaml               frontend + backend + mongo
+```mermaid
+flowchart LR
+  user([Engineer]) --> web[React dashboard]
+  web -->|/api| api[API - Node/Express]
+  api --> mongo[(MongoDB)]
+  api -->|Cost Explorer| aws[(AWS)]
+  api -->|scan| scanners[EBS / EIP / EC2 scanners]
+  api -->|explain, rank, chat| claude[Claude API]
+  api -->|Open PR| gh[GitHub]
+  scan[Daily scan job] --> scanners
+  gh -. PR merged .-> argocd[ArgoCD]
+  argocd --> eks[EKS cluster]
+  eks --- rollouts[Argo Rollouts canary]
+  eks --- eso[External Secrets] --> sm[(AWS Secrets Manager)]
+  eks --> dd[Datadog agent] --> datadog[(Datadog dashboards and alerts)]
 ```
 
-## Week 1 API
+A longer walkthrough, with the CI/CD flow, is in [docs/architecture.md](docs/architecture.md).
 
-| Method | Path | Description |
-|---|---|---|
-| GET | /health | Liveness check |
-| POST | /api/auth/register | Create account, returns a JWT (password 8+ characters) |
-| POST | /api/auth/login | Sign in, returns a JWT |
-| GET | /api/auth/me | Current user |
-| GET | /api/costs?days=30 | Daily spend, per-service totals, anomalies |
-
----
-
-# Week 2: Real AWS data and waste scanners
-
-**Goal:** connect to a real AWS account (read-only), find wasted resources, and show how much money could be saved.
-
-## What was added
-
-- **`COST_SOURCE=mock|aws` switch.** `mock` uses sample data and fake AWS resources. `aws` uses Cost Explorer and read-only scans.
-- **Cost Explorer client** that turns AWS results into the same shape as the mock data (friendly service names, credits and refunds excluded, pagination handled).
-- **Caching in MongoDB** (`CACHE_HOURS`, default 24) because each Cost Explorer API call costs about $0.01.
-- **Three waste scanners:**
-  - Unattached EBS volumes (price = size x per-GB rate by volume type)
-  - Unused Elastic IPs (about $3.65 a month each)
-  - Idle EC2 instances (average CPU under 5% and peak under 20% over 14 days, using CloudWatch)
-- **Mock AWS clients** with the same `send(command)` shape as the real SDK, so mock mode runs the real scanner code.
-- **Recommendations** stored in MongoDB with a monthly savings estimate and a status (`new`, `dismissed`, `resolved`, ...). Dismissed items stay dismissed on later scans; items that are no longer found become `resolved`.
-- **Custom date ranges** (`from` / `to`) for sample data, plus 30/60/90 day presets.
-- **New dashboard** with Overview, Services, Calendar and Savings views, a "Scan now" button, a Sample data / Live AWS data label, light and dark theme, CSV export and a quick-action dock.
-- **Tests** for anomaly detection, Cost Explorer parsing and the scanners.
-- **GitOps skeleton** (`costpilot-gitops/`): Helm chart and Argo CD ApplicationSet for dev, staging and prod. Deployment config only; it is wired up in Weeks 5 to 7.
-
-## Week 2 files
-
+## How a change reaches production
 ```
-backend/src/services/awsCost.js            Cost Explorer client
-backend/src/services/costSource.js         mock/aws switch + cache
-backend/src/services/scanners/             ebs.js, eip.js, ec2Idle.js, index.js, mockAws.js
-backend/src/services/recommendations.js    save scan results
-backend/src/models/Recommendation.js       recommendation model
-backend/src/models/CostCache.js            cache model
-backend/src/routes/scan.js                 POST /api/scan
-backend/src/routes/recommendations.js      list / dismiss
-backend/src/tests/                         anomaly, awsCost, scanners tests
-frontend/src/views/                        Home, Overview, Services, Calendar, Savings
-frontend/src/components/                   QuickBar, RangeBar
-docker-compose.override.yml                passes Week 2 settings to the backend
-docs/iam-policy.json                       read-only IAM policy
-docs/week2.md                              Week 2 notes
-scripts/smoke-test.ps1                     end-to-end API check
-costpilot-gitops/                          Helm + Argo CD config
+merge to main
+  -> GitHub Actions: tests, Terraform and Helm checks, image build, security scan, push to ECR
+  -> Jenkins: promote the image tag (writes it to gitops/envs/<env>/values.yaml)
+  -> ArgoCD: deploys that commit as a canary
+  -> smoke test inside the cluster; failure marks the release as failed
 ```
+Each tool does one job. Nothing is deployed by hand.
 
-## Week 2 API
-
-All `/api` routes except register and login need `Authorization: Bearer <token>`.
-
-| Method | Path | Description |
-|---|---|---|
-| GET | /api/costs?days=30 | Daily spend from mock or AWS (14 to 90 days) |
-| GET | /api/costs?from=YYYY-MM-DD&to=YYYY-MM-DD | Custom range (mock mode only, 400 days max) |
-| POST | /api/scan | Run all scanners and save findings |
-| GET | /api/recommendations | Active findings, biggest savings first |
-| PATCH | /api/recommendations/:id | Body `{"status":"dismissed"}` or `{"status":"new"}` |
-
-## Switching to real AWS
-
-1. In AWS IAM, create a user with the read-only policy in [docs/iam-policy.json](docs/iam-policy.json) and create an access key.
-2. In AWS Billing, open Cost Explorer once so AWS enables it. Data can take up to 24 hours to appear.
-3. In `.env`, set `COST_SOURCE=aws`, `AWS_REGION`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
-4. Run `docker compose up -d --build`.
-
-The dashboard label changes from "Sample data" to "Live AWS data". Savings are estimates: a per-GB rate for EBS, a flat price for Elastic IPs and a small on-demand price table for EC2. Never commit `.env`.
-
----
-
-# Week 3: Claude explains, ranks and answers
-
-**Goal:** add AI on top of the cost data. Claude explains why a day was expensive, decides which savings to do first, and answers questions about your bill. Everything also works with no API key.
-
-## What was added
-
-- **Explain this** on every unusual day in the Overview tab. Returns a short summary, possible causes, things to check in AWS, and a confidence level.
-- **Rank with AI** on the Savings tab. Orders the waste findings and gives each one a priority number, a risk level (low / medium / high), an effort level (minutes / hours / days) and a one-line reason. AI-ranked items are shown first.
-- **Ask AI** tab: a chat about your bill ("Which service costs the most?"). The last messages are saved per user and can be cleared.
-- **Sample mode (no key needed).** With no `ANTHROPIC_API_KEY`, every AI feature still works using answers built from your own numbers. Nothing is sent anywhere. The Ask AI tab shows which mode is active.
-- **Real Claude mode.** Set `ANTHROPIC_API_KEY` and the same features are answered by Claude (default model `claude-haiku-5-5`). Explain and Rank use structured tool output, and the server checks the result before saving it.
-- **Daily limit.** `AI_DAILY_LIMIT` (default 30) caps AI requests per user per day. Explain, rank and chat each count as one. The limit resets at midnight UTC.
-- **Usage tracking.** Calls and token counts per user per day are stored, ready for the Week 7 Datadog dashboard. Set both price variables to see an estimated daily AI cost.
-- **Caching.** An explanation of the same day with the same spend is saved for 7 days, so asking twice costs nothing.
-- **Friendly errors.** A bad key, a rate limit or a wrong model name each show a clear message. The raw error is logged on the server and never shown.
-- **Tests and smoke test** for the AI code.
-
-## Safety
-
-- The AI only advises. It has no access to AWS and cannot change anything.
-- AWS text such as resource names and tags is sent inside tags, and the prompt tells Claude to treat it as data, not instructions.
-- Your API key stays on the server and never reaches the browser. Error messages never include it.
-- Requests are limited per user per day.
-- It uses only the numbers it is given. If the data does not contain the answer, it says so.
-
-## Using the real Claude API
-
-1. Create an API key in the Anthropic Console (console.anthropic.com).
-2. In `.env`, set `ANTHROPIC_API_KEY=...`. Optionally set `ANTHROPIC_MODEL`.
-3. Run `docker compose up -d --build`.
-4. Open the **Ask AI** tab. It should say "Answers written by Claude". `http://localhost:5000/health` now shows `"ai":"claude"`.
-5. Never commit `.env`.
-
-To go back to free sample answers, empty `ANTHROPIC_API_KEY` (or set `AI_MODE=mock`) and rebuild.
-
-## Week 3 files
-
-```
-backend/src/services/ai/index.js       explainSpend, rankRecommendations, chatWithBill
-backend/src/services/ai/claude.js      Anthropic SDK call, tool output, retry, token count
-backend/src/services/ai/prompts.js     system prompts and the two tool schemas
-backend/src/services/ai/context.js     builds the bill summary and one-day detail
-backend/src/services/ai/mock.js        free sample answers built from your numbers
-backend/src/services/ai/usage.js       daily limit, token counts, cost estimate
-backend/src/services/ai/errors.js      friendly error messages
-backend/src/services/ai/config.js      AI mode, model, daily limit
-backend/src/services/ai/fmt.js         money formatting helper
-backend/src/models/AiUsage.js          calls and tokens per user per day
-backend/src/models/AiCache.js          saved explanations (7 days)
-backend/src/models/ChatMessage.js      saved chat history
-backend/src/models/Recommendation.js   adds aiPriority, aiRisk, aiEffort, aiReason, aiRankedAt
-backend/src/routes/ai.js               /api/ai/* routes
-backend/src/routes/recommendations.js  AI-ranked items sorted first
-backend/src/tests/ai.test.js           AI tests
-frontend/src/views/Ask.jsx             chat tab
-frontend/src/components/ExplainCard.jsx   "Explain this" card
-frontend/src/views/Overview.jsx        Explain this on unusual days
-frontend/src/views/Savings.jsx         Rank with AI, priority, risk and effort chips
-scripts/smoke-test-week3.ps1           end-to-end AI check
-docs/week3.md                          Week 3 notes
-```
-
-## Week 3 API
-
-All routes need `Authorization: Bearer <token>`.
-
-| Method | Path | Description |
-|---|---|---|
-| GET | /api/ai/status | Mode, model, requests used today, limit, tokens, estimated cost |
-| POST | /api/ai/explain | Body `{"date":"2026-11-13"}`. Explains one day |
-| POST | /api/ai/rank | Ranks the active waste findings and saves the ranking |
-| POST | /api/ai/chat | Body `{"question":"..."}` (up to 500 characters) |
-| GET | /api/ai/chat | Read your chat history (last 50 messages) |
-| DELETE | /api/ai/chat | Clear your chat history |
-
-`GET /health` now also returns `"ai": "mock"` or `"claude"`.
-
-Common responses: `400` empty question, bad date or nothing to rank (run a scan first), `404` no data for that date, `429` daily limit reached, `502` Claude key rejected, rate limited or unreachable.
-
----
-
-# Week 4: Infrastructure as Code with Terraform
-
-**Goal:** describe all the AWS infrastructure CostPilot needs as Terraform code, so the whole environment can be created, reviewed and destroyed with a few commands. This is also the code that CostPilot's pull requests will change in Week 6.
-
-## What was added
-
-- **VPC** with public and private subnets, an internet gateway and routing.
-- **EKS cluster** with a managed node group. ArgoCD and the app are deployed onto it in Week 5.
-- **ECR repositories** for the frontend and backend Docker images.
-- **S3 bucket** for reports and exports.
-- **SQS queue** for scan jobs. The Week 5 worker reads from it.
-- **IAM roles and policies** for the cluster, the nodes and the app, following least privilege.
-- **Bootstrap stack** (`terraform/bootstrap`) that is applied once and creates the remote Terraform state storage. It prints a ready-made `backend.hcl` so the dev environment stores its state remotely instead of on your laptop.
-- **Dev environment** (`terraform/envs/dev`) that builds everything above for development. It is configured with a small `terraform.tfvars` file.
-- **Safe defaults:** the EKS API is reachable only from your own IP (`api_allowed_cidrs`), the cluster starts with a single node (`node_desired = 1`) to keep cost low, and an alert email can be set (`alert_email`).
-- **Validation script** (`scripts/tf-validate.ps1`) that checks the Terraform code without creating anything.
-
-## Week 4 files
-
-```
-terraform/bootstrap/            one-time setup: remote state storage, prints backend_hcl_dev
-terraform/envs/dev/             dev environment (VPC, EKS, ECR, S3, SQS, IAM)
-terraform/envs/dev/backend.hcl  generated by bootstrap (not committed)
-terraform/envs/dev/terraform.tfvars  your own values: IP, email, node count (not committed)
-scripts/tf-validate.ps1         checks the Terraform code
-docs/week4.md                   Week 4 notes
-```
-
-## Before you start
-
-You need an AWS account and an IAM user with an access key that is allowed to create these resources. Run every command in PowerShell from the project root unless a `cd` says otherwise.
-
-> **Cost warning:** EKS costs money while it exists, even when idle (the control plane is about $0.10 an hour, plus the worker node). Always run `terraform destroy` when you finish for the day, and check the AWS Billing page. This is exactly the kind of waste CostPilot is built to find.
-
-## Step 1: Install the tools
-
-```powershell
-winget install Hashicorp.Terraform
-winget install Amazon.AWSCLI
-winget install Kubernetes.kubectl
-```
-
-Close PowerShell and open it again so the new commands are found, then check:
-
-```powershell
-terraform -version
-aws --version
-kubectl version --client
-```
-
-*Why:* Terraform builds the infrastructure, the AWS CLI lets you log in to AWS and fetch the cluster login, and kubectl talks to the Kubernetes cluster. Reopening PowerShell is needed because the PATH is only read when it starts.
-
-## Step 2: Connect to AWS
-
-```powershell
-aws configure
-```
-
-Enter these when asked:
-
-```
-AWS Access Key ID [None]: <your access key id>
-AWS Secret Access Key [None]: <your secret key>
-Default region name [None]: ap-south-1
-Default output format [None]: json
-```
-
-Check that it works:
-
-```powershell
-aws sts get-caller-identity
-```
-
-*Why:* Terraform uses these credentials to create resources in your account. `ap-south-1` (Mumbai) is the region used in this project. `get-caller-identity` prints the account and user you are logged in as, so you can confirm you are in the right account before creating anything. Never put your keys in the repo.
-
-## Step 3: Check the code
-
-From the project root:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\tf-validate.ps1
-```
-
-*Why:* this checks the Terraform code for syntax and formatting mistakes without touching AWS, so it is free and safe to run any time.
-
-## Step 4: Bootstrap (remote state)
-
-```powershell
-cd terraform\bootstrap
-terraform init
-terraform apply
-
-terraform output -raw backend_hcl_dev | Out-File -Encoding ascii ..\envs\dev\backend.hcl
-Add-Content ..\..\.gitignore "terraform/**/backend.hcl"
-```
-
-*Why:* Terraform keeps a "state" file that records what it has built. Storing it remotely is safer than keeping it on one laptop and lets a team (and later GitHub Actions) share it. The bootstrap stack creates that storage once. Its output `backend_hcl_dev` is the connection settings, saved as `backend.hcl` in the dev folder. The `.gitignore` line keeps that file out of Git. `Out-File -Encoding ascii` avoids a Windows encoding problem that can break the file.
-
-## Step 5: Build the dev environment
-
-```powershell
-cd ..\envs\dev
-
-$ip = (Invoke-RestMethod https://checkip.amazonaws.com).Trim()
-@"
-api_allowed_cidrs = ["$ip/32"]
-alert_email       = "your-email@example.com"
-node_desired      = 1
-"@ | Out-File -Encoding ascii terraform.tfvars
-
-terraform init -backend-config=backend.hcl
-terraform plan -out tfplan
-terraform apply tfplan
-```
-
-*Why:*
-
-| Setting | Meaning |
+## Tech stack
+| Area | Tools |
 |---|---|
-| `api_allowed_cidrs` | Only your current public IP (`/32` means exactly one address) can reach the Kubernetes API. Nobody else on the internet can. |
-| `alert_email` | The email address that receives the project's alerts. Use your real email. |
-| `node_desired` | Number of worker nodes. `1` is the cheapest choice for development. |
+| App | React (Vite), Node.js, Express, MongoDB (Mongoose), Claude API |
+| Cloud | AWS EKS, ECR, S3, SQS, IAM (IRSA), Secrets Manager, Cost Explorer, EC2, CloudWatch |
+| Infrastructure | Terraform (modules, S3 state with locking), OpenTofu-compatible |
+| Containers | Docker, Helm |
+| Delivery | GitHub Actions (CI), Jenkins (promotion), ArgoCD (GitOps), Argo Rollouts (canary) |
+| Security | Trivy scan, IRSA, KMS-encrypted secrets, Secrets Manager, least-privilege IAM |
+| Observability | Datadog agent, OpenMetrics, logs, dashboards, monitors |
 
-`terraform init -backend-config=backend.hcl` connects to the remote state from Step 4. `terraform plan -out tfplan` shows what will be created and saves that plan, and `terraform apply tfplan` builds exactly that plan. Read the plan before applying. EKS can take 10 to 15 minutes to create.
-
-## Step 6: Connect to the cluster
-
-```powershell
-terraform output -raw kubeconfig_command | Invoke-Expression
-kubectl get nodes
+## Repository layout
+```
+backend/            API, scanners, AI services, scan job, smoke test, tests
+frontend/           React dashboard
+gitops/
+  charts/costpilot/ Helm chart (API as Rollout, web, database, scan job, smoke test)
+  envs/dev|prod/    the image tag and settings per environment (Jenkins writes the tag)
+  apps/             ArgoCD Applications for the app
+  platform/         ArgoCD Applications for External Secrets, Argo Rollouts, Datadog
+terraform/          bootstrap (state), modules (vpc, eks, ecr, s3, sqs, iam, budget, app-secrets, github-oidc), envs
+.github/workflows/  CI
+jenkins/            local Jenkins for the promotion job
+docs/               architecture, ADRs, runbooks, weekly guides, demo script
+scripts/            PowerShell helpers for Windows
 ```
 
-*Why:* the output `kubeconfig_command` is the `aws eks update-kubeconfig ...` command for your new cluster. Running it sets up kubectl. `kubectl get nodes` should list your node with status `Ready`.
-
-If kubectl cannot connect later, your public IP has probably changed (home Wi-Fi, mobile hotspot). Run the `$ip = ...` block from Step 5 again and `terraform apply` to update `api_allowed_cidrs`.
-
-## Step 7: Destroy when finished
-
-```powershell
-terraform destroy
-```
-
-*Why:* this deletes everything the dev environment created so AWS stops charging you. You can rebuild it any time with Step 5. Do not destroy the bootstrap stack while the dev environment still exists, because it holds the state storage.
-
-## Safety
-
-- Read `terraform plan` before every `apply`.
-- Never commit `backend.hcl`, `terraform.tfvars`, `*.tfstate`, `tfplan`, `.terraform/` or any access key.
-- The app's IAM role is read-only for cost data. Nothing in CostPilot can change AWS directly: changes only happen through a reviewed pull request and ArgoCD.
-
-## Week 4 notes
-
-- Week 4 does not change the app code or the Docker Compose setup. The app still runs locally exactly as before.
-- Terraform only touches your AWS account when you run `terraform apply`.
-
----
-
-# Week 5: Helm and ArgoCD on EKS, daily scan CronJob
-
-**Goal:** run CostPilot on the EKS cluster from Week 4 using GitOps. The app is packaged as a Helm chart, its images live in ECR, and ArgoCD keeps the cluster in sync with what is in Git. A CronJob runs the waste scan every day.
-
-## What was added
-
-- **Helm chart** (`costpilot-gitops/charts/costpilot`) with templates for the backend API, the frontend, an in-cluster MongoDB, service accounts and the daily scan CronJob.
-- **Per-environment values** in `costpilot-gitops/envs/dev`, `staging` and `prod`. Dev is the one deployed. Each file overrides the chart defaults (image registry and tag, IAM roles, cost source).
-- **ArgoCD application** (`costpilot-gitops/apps/costpilot-dev.yaml`) that points at the chart and the dev values file. It syncs automatically, prunes resources removed from Git, heals manual changes and creates the `costpilot` namespace.
-- **Image push script** (`scripts/push-images.ps1`) that builds the backend and frontend images and pushes them to ECR with a unique time-based tag. ECR refuses to overwrite a tag, so every push needs a new one.
-- **Daily scan job** (`backend/src/jobs/`) run by a Kubernetes CronJob at 02:00 UTC. It reuses the backend image and the same scanners as the API. Includes tests (`backend/src/tests/scanJob.test.js`).
-- **IAM roles for service accounts (IRSA).** The API and the scan job each get their own read-only AWS role from Terraform, so no AWS keys are stored in the cluster.
-- **Safe defaults:** `costSource: mock` (sample data) so the first deploy needs no AWS billing access, a throwaway MongoDB inside the cluster, and a ClusterIP frontend service (no public load balancer, so no extra cost).
-
-## How it fits together
-
-```
-You push to GitHub  ->  ArgoCD sees the change  ->  renders the Helm chart + envs/dev/values.yaml
-                                                      -> creates / updates pods in namespace "costpilot"
-
-scripts/push-images.ps1  ->  ECR (costpilot/backend, costpilot/frontend)  <-  pods pull images from here
-```
-
-ArgoCD reads only what is on GitHub. A change that is not committed and pushed never reaches the cluster.
-
-## Week 5 files
-
-```
-costpilot-gitops/apps/costpilot-dev.yaml            ArgoCD Application for dev
-costpilot-gitops/charts/costpilot/Chart.yaml        chart metadata
-costpilot-gitops/charts/costpilot/values.yaml       chart defaults
-costpilot-gitops/charts/costpilot/templates/        backend, frontend, mongo, scan-cronjob,
-                                                    serviceaccounts, _helpers.tpl, NOTES.txt
-costpilot-gitops/envs/dev/values.yaml               dev settings: image registry + tag, IAM roles
-costpilot-gitops/envs/staging/values.yaml           staging settings (not deployed yet)
-costpilot-gitops/envs/prod/values.yaml              prod settings (not deployed yet)
-backend/src/jobs/                                   daily scan job
-backend/src/tests/scanJob.test.js                   scan job tests
-scripts/push-images.ps1                             build and push images to ECR
-docs/week5.md                                       Week 5 notes
-```
-
-## Before you start
-
-Week 4 must be finished: the EKS cluster is running and `kubectl get nodes` shows a `Ready` node. ArgoCD must be installed on the cluster, and the ECR repositories (`costpilot/backend`, `costpilot/frontend`) must exist. Run commands from the project root.
-
-## Step 1: Push the images to ECR
-
-Docker Desktop must be running.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\push-images.ps1
-```
-
-The script logs in to ECR, builds both images and pushes them. At the end it prints the `registry` and `tag` to use in the next step.
-
-*Why:* the cluster pulls images from ECR, not from your laptop. The login uses `cmd /c` for the pipe, because the PowerShell pipe adds characters to the password and ECR answers `400 Bad Request`.
-
-## Step 2: Set the image in the dev values
-
-Edit `costpilot-gitops/envs/dev/values.yaml`:
-
-```yaml
-image:
-  registry: "<account-id>.dkr.ecr.ap-south-1.amazonaws.com"
-  tag: <tag printed by push-images.ps1>
-```
-
-*Why:* this file is what ArgoCD deploys. Use the same tag for the backend and the frontend, and a new tag after every code change.
-
-## Step 3: Create the secret
-
-The chart reads its settings from a secret that is never stored in Git:
-
-```powershell
-kubectl create namespace costpilot
-$jwt = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 40 | ForEach-Object {[char]$_})
-kubectl -n costpilot create secret generic costpilot-secrets `
-  --from-literal=JWT_SECRET=$jwt `
-  --from-literal=MONGO_URI="mongodb://mongo:27017/costpilot"
-```
-
-Add `--from-literal=ANTHROPIC_API_KEY=...` only if you want real Claude answers.
-
-*Why:* without this secret the pods stop with `CreateContainerConfigError`. `mongo` is the Service name of the MongoDB in the cluster. If the namespace already exists, skip the first line. From Week 7 onward, External Secrets creates this secret from AWS Secrets Manager instead.
-
-## Step 4: Commit and push
-
-```powershell
-git add -A
-git status --short
-git commit -m "Set dev image tag"
-git push origin main
-```
-
-Check `git status --short` before committing: no `.env`, `terraform.tfvars`, `backend.hcl`, `tfplan` or `*.tfstate` should be in the list.
-
-## Step 5: Deploy with ArgoCD
-
-If the application is not created yet:
-
-```powershell
-kubectl apply -f costpilot-gitops\apps\costpilot-dev.yaml
-```
-
-Then ask ArgoCD to refresh and check:
-
-```powershell
-kubectl -n argocd annotate application costpilot-dev argocd.argoproj.io/refresh=hard --overwrite
-kubectl -n argocd get applications
-kubectl -n costpilot get pods
-```
-
-Expected result after one or two minutes:
-
-```
-NAME            SYNC STATUS   HEALTH STATUS
-costpilot-dev   Synced        Healthy
-
-NAME                        READY   STATUS
-backend-...                 1/1     Running
-frontend-...                1/1     Running
-mongo-...                   1/1     Running
-```
-
-*Why:* **Synced** means the cluster matches Git. **Progressing** means pods are starting and not ready yet, which is normal for a minute or two. **Healthy** means every pod is ready.
-
-## Step 6: Open the app
-
-```powershell
-kubectl -n costpilot port-forward svc/frontend 8081:80
-```
-
-Open http://localhost:8081, create an account and sign in. Stop with Ctrl + C.
-
-## Step 7: Check the daily scan job
-
-```powershell
-kubectl -n costpilot get cronjob
-kubectl -n costpilot create job --from=cronjob/costpilot-scan scan-test
-kubectl -n costpilot logs job/scan-test
-```
-
-*Why:* the CronJob runs at 02:00 UTC every day. The second command starts one run now so you do not have to wait. Delete the test run with `kubectl -n costpilot delete job scan-test`.
-
-## Updating the app
-
-1. Change the code.
-2. Push the code to `main`. CI builds, scans and pushes images tagged `sha-xxxxxxx` (see Week 6).
-3. Run the Jenkins job `costpilot-promote` with that tag. It writes the tag into `costpilot-gitops/envs/dev/values.yaml`.
-4. ArgoCD deploys the new tag automatically, or run the refresh command from Step 5.
-
-## Useful commands
-
-| Command | What it does |
-|---|---|
-| `kubectl -n argocd get applications` | Sync and health of the app |
-| `kubectl -n argocd get application costpilot-dev -o jsonpath="{.status.conditions}"` | The exact error when Sync is `Unknown` |
-| `kubectl -n argocd describe application costpilot-dev` | Path, repo, branch and events |
-| `kubectl -n costpilot get pods -w` | Watch pods start (Ctrl + C to stop) |
-| `kubectl -n costpilot logs deploy/backend --tail 30` | Last backend log lines |
-| `kubectl -n costpilot describe pod <pod-name>` | Events that explain pull and start errors |
-| `kubectl -n costpilot get deploy <name> -o jsonpath="{.spec.template.spec.containers[0].image}"` | The image a deployment really uses |
-
-## Safety
-
-- ArgoCD only reads GitHub, so every change goes through a commit. Nothing is changed by hand in the cluster, and `selfHeal` reverts manual edits.
-- Secrets are never stored in Git.
-- The pods use IAM roles with read-only permissions, not access keys.
-- The dev MongoDB is a throwaway: its data is lost when the pod restarts. For data you care about, turn it off in the values file and use MongoDB Atlas in the secret's `MONGO_URI`.
-- The cluster costs money while it runs. Run `terraform destroy` (Week 4, Step 7) when you finish for the day.
-
----
-
-# Week 6: CI/CD and automatic pull requests
-
-**Goal:** every change is checked automatically, a merge to `main` builds and scans images, and a promotion step moves a tested tag into the cluster without typing `kubectl`. CostPilot can also open a pull request for a waste finding so a person reviews and approves the fix.
-
-## What was built
-
-- **GitHub Actions `CI`** (`.github/workflows/ci.yml`): backend tests, frontend build, `terraform fmt` and `validate`, Helm lint and kubeconform checks for dev and prod, a Docker build and Trivy scan of both images on every pull request and push to `main`, and a push of both images to ECR on `main`.
-- **OIDC login for AWS** (`terraform/github-oidc/`): GitHub Actions assumes an IAM role through its OIDC provider. No AWS keys are stored in GitHub.
-- **Jenkins** (`Jenkinsfile`, `jenkins/Dockerfile`): checks the input tag, then writes it into `costpilot-gitops/envs/<env>/values.yaml` and commits `chore(<env>): promote image <tag> [skip ci]`. It asks for approval before prod. It never builds images and never touches the cluster.
-- **Automatic pull requests**: `POST /api/recommendations/:id/pr` creates a branch, adds one remediation file under `costpilot-gitops/remediations/`, and opens a pull request. `GET /api/prs` refreshes the state, so a merged PR marks the finding `applied`. With no `GITHUB_TOKEN` it runs in preview (mock) mode.
-- **Savings tab**: an **Open PR** button per finding, with the PR link once it is open.
-
-> **One promotion path:** the earlier `deploy-dev.yml` workflow also committed tags, so it was removed. Jenkins is the only thing that changes the dev image tag. See Week 7, error 9.
-
-## Week 6 files
-
-```
-.github/workflows/ci.yml                  tests, build, scan, terraform, helm, push to ECR
-Jenkinsfile                               checks + promotion pipeline
-jenkins/Dockerfile, plugins.txt           Jenkins image with git, node, docker, aws, terraform, helm
-jenkins/docker-compose.yaml               runs Jenkins on http://localhost:8085
-terraform/github-oidc/                    OIDC role for GitHub Actions (no stored AWS keys)
-backend/src/services/pr/                  config, normalize, buildPr, github, sync
-backend/src/routes/prs.cjs                PR API
-backend/src/models/PullRequestRecord.cjs  one record per pull request
-backend/src/tests/pr.test.cjs             13 tests
-frontend/src/components/PrButton.jsx      the Open PR button
-scripts/set-image-tag.ps1 / .sh           safe tag change (validates, keeps comments)
-scripts/smoke-test-week6.ps1              end-to-end API check
-docs/week6.md                             full steps and troubleshooting
-```
-
-## Run it
-
-Full instructions are in **[docs/week6.md](docs/week6.md)**. The short version:
-
-```powershell
-# 1. local demo, no token needed (preview mode)
+## Run it on your PC (no AWS needed)
+```bash
+cp .env.example .env
 docker compose up -d --build
-powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-week6.ps1
+```
+Open the port shown by `docker ps` for the frontend. The app uses sample data until you switch `COST_SOURCE=aws`.
 
-# 2. real pull requests: add GITHUB_TOKEN to .env, then
-docker compose up -d --build backend
-
-# 3. CI role: create the OIDC role once, then add the AWS_ROLE_ARN repository VARIABLE
-cd terraform\envs\dev
-terraform output -raw github_ci_role_arn
-# Settings > Secrets and variables > Actions > Variables > New repository variable
-
-# 4. Jenkins
-docker compose -f jenkins/docker-compose.yaml up -d --build
-docker compose -f jenkins/docker-compose.yaml exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+Run the tests:
+```bash
+cd backend && npm install && npm test
 ```
 
-Once Jenkins is set up, create the `github-token` credential and the `costpilot-promote` pipeline job as described in `docs/week6.md`. Run it with `ENVIRONMENT=dev` and an `IMAGE_TAG` from a successful CI push (for example `sha-8baac83`).
-
----
-
-# Week 7: Datadog, External Secrets, Argo Rollouts
-
-**Goal:** make the running app observable and safer to release. The API exposes metrics for Datadog, secrets move from hand-made Kubernetes secrets to AWS Secrets Manager (copied in by External Secrets), and the API ships as a canary with Argo Rollouts so a bad release is stopped automatically.
-
-## What was added
-
-- **Metrics endpoint** (`/metrics`) in the backend, read by the Datadog agent.
-- **Datadog** agent, dashboard and three monitors (`costpilot-gitops/platform/datadog/`).
-- **External Secrets Operator** that copies `costpilot-dev/app` and `costpilot-dev/datadog` from AWS Secrets Manager into the cluster every hour.
-- **Argo Rollouts** canary for the backend, with a health analysis before full rollout.
-- **Terraform** `app-secrets` module for the two secrets and the read-only role for External Secrets.
-- **CI hardening** that came out of the Week 7 chart changes: stricter Helm validation, a working Trivy scan, and OIDC login for the ECR push.
-
-## Week 7 files
-
-```
-backend/src/services/metrics.js                                 metrics registry (/metrics)
-backend/src/middleware/metrics.js                               records each request
-costpilot-gitops/platform/app/                                  Argo CD apps for External Secrets, Rollouts, Datadog
-costpilot-gitops/platform/config/                               ClusterSecretStore and Datadog ExternalSecret
-costpilot-gitops/platform/datadog/                              agent values, dashboard, monitors
-costpilot-gitops/charts/costpilot/templates/backend.yaml        Rollout (canary)
-costpilot-gitops/charts/costpilot/templates/analysis.yaml       AnalysisTemplate (health check)
-costpilot-gitops/charts/costpilot/templates/external-secret.yaml ExternalSecret
-terraform/modules/app-secrets/                                  Secrets Manager secrets and read role
-terraform/modules/github-oidc/main.tf                           trust policy uses owner and repo IDs in the sub claim
-scripts/put-secrets.ps1, put-datadog-keys.ps1                   store keys without printing them
-scripts/datadog-setup.ps1                                       create dashboard and monitors
-docs/week7.md                                                   full steps and troubleshooting
-```
-
-## Errors we hit and how we fixed them
-
-Each entry gives the symptom, the cause, and the fix. The commands are explained in the table at the end of this section.
-
-### 1. Helm check reports only one resource
-
-**Symptom:** `Summary: 1 resource found in 1 file` for a chart that renders about 12 resources.
-
-**Cause:** Windows PowerShell's `>` writes **UTF-16**. kubeconform cannot read it as YAML, so it only finds the first document.
-
-**Fix:** write the file through `cmd`, which writes plain UTF-8:
-
-```powershell
-cmd /c "helm template costpilot costpilot-gitops/charts/costpilot -f costpilot-gitops/envs/dev/values.yaml > rendered-dev.yaml"
-```
-
-Check the first line with `Get-Content rendered-dev.yaml -TotalCount 3`. It should read `---` and `# Source: ...`, with no gaps between letters.
-
-### 2. `.\kubeconform.exe` is not recognized
-
-**Symptom:** `The term '.\kubeconform.exe' is not recognized`.
-
-**Cause:** the binary was never downloaded into the project folder.
-
-**Fix:**
-
-```powershell
-Invoke-WebRequest -Uri "https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-windows-amd64.zip" -OutFile "kubeconform.zip"
-Expand-Archive -Path "kubeconform.zip" -DestinationPath "." -Force
-Remove-Item "kubeconform.zip"
-.\kubeconform.exe -v
-```
-
-### 3. Argo Rollouts and External Secrets fail schema validation
-
-**Symptom:** kubeconform rejects `Rollout`, `AnalysisTemplate` or `ExternalSecret` because it has no built-in schema for them.
-
-**Cause:** these are CRDs (custom resources), which kubeconform does not ship with.
-
-**Fix:** add the community CRD catalog and skip resources that still have no schema:
-
-```powershell
-.\kubeconform.exe -strict -summary -ignore-missing-schemas -kubernetes-version 1.35.0 `
-  -schema-location default `
-  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' `
-  rendered-dev.yaml
-```
-
-Expected result for dev: `Valid: 12, Invalid: 0, Errors: 0`. For prod: `Valid: 11`, because the mongo resources are off there.
-
-### 4. A Helm error is hidden in CI
-
-**Symptom:** the job passes even though `helm template` failed.
-
-**Cause:** `helm template ... | kubeconform` only reports the exit code of the last command in the pipe.
-
-**Fix:** write the render to a file first, and turn on `set -e` so any failing command stops the step:
-
-```yaml
-set -e
-helm template costpilot costpilot-gitops/charts/costpilot \
-  -f "costpilot-gitops/envs/$env/values.yaml" > "rendered-$env.yaml"
-```
-
-### 5. Trivy action cannot be resolved
-
-**Symptom:** `Unable to resolve action aquasecurity/trivy-action@0.28.0`, then `Unable to resolve action aquasecurity/setup-trivy@v0.2.1`.
-
-**Cause:** the first tag needs a `v` prefix. After that, `trivy-action` depends on an internal helper action that GitHub could not download.
-
-**Fix:** stop using the action and run the official Trivy image directly on the runner, which already has Docker:
-
-```yaml
-- name: Scan for critical vulnerabilities
-  run: |
-    docker run --rm \
-      -v /var/run/docker.sock:/var/run/docker.sock \
-      aquasec/trivy:0.58.1 image \
-      --severity CRITICAL \
-      --ignore-unfixed \
-      --exit-code 1 \
-      costpilot/${{ matrix.image }}:ci
-```
-
-Check that the tag exists at https://hub.docker.com/r/aquasec/trivy/tags before you pin it.
-
-### 6. Push to ECR is skipped or fails at login
-
-**Symptom:** `Error: Add the AWS_ROLE_ARN variable in Settings > Secrets and variables > Actions > Variables`.
-
-**Cause:** the role ARN was not saved as a repository **variable**, so `vars.AWS_ROLE_ARN` is empty.
-
-**Fix:** open https://github.com/yash-deshpande24/CostPilot-AI-Powered/settings/variables/actions and add:
-
-- Name: `AWS_ROLE_ARN`
-- Value: `arn:aws:iam::208805233492:role/costpilot-dev-github-ci`
-
-Get the value with `terraform output -raw github_ci_role_arn` from `terraform/envs/dev`.
-
-### 7. Could not assume role with OIDC
-
-**Symptom:** `Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity`.
-
-**Cause:** GitHub's token now puts the numeric owner and repository IDs into the `sub` claim, for example `repo:owner@155445472/CostPilot-AI-Powered@1465199474:ref:refs/heads/main`. The trust policy expected the older `repo:owner/repo:ref:...` form, so the condition did not match.
-
-**Diagnose:**
-
-```powershell
-aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity --max-results 3 --query "Events[].CloudTrailEvent" --output text
-```
-
-Look for `"errorCode":"AccessDenied"` and the `sub` value in `userIdentity.principalId`.
-
-**Fix:** update the `sub` condition in `terraform/modules/github-oidc/main.tf` to the ID form, then apply:
-
-```hcl
-values = ["repo:yash-deshpande24@155445472/CostPilot-AI-Powered@1465199474:ref:refs/heads/main"]
-```
-
-```powershell
-cd terraform\envs\dev
-terraform plan -out tfplan
-terraform apply tfplan
-```
-
-**Do not** loosen `sub` to `repo:owner/repo:*` as a permanent fix. That allows every branch and pull request to assume the deploy role.
-
-### 8. Deploy workflow reads the role from the wrong place
-
-**Symptom:** a deploy workflow fails at the login step while `CI` succeeds.
-
-**Cause:** the workflow read `secrets.AWS_ROLE_ARN`, but the value is saved as a variable.
-
-**Fix:** use `vars.AWS_ROLE_ARN`:
-
-```yaml
-role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-```
-
-Keep only one source. Delete any secret named `AWS_ROLE_ARN` under the Secrets tab.
-
-### 9. Two workflows promote the same tag
-
-**Symptom:** `values.yaml` alternates between `sha-` tags and timestamp tags, and pushes are rejected.
-
-**Cause:** Jenkins and the `deploy-dev.yml` workflow both commit tags to `costpilot-gitops/envs/dev/values.yaml` on `main`.
-
-**Fix:** keep one promotion path. This project uses Jenkins, so `deploy-dev.yml` was removed:
-
-```powershell
-git rm .github/workflows/deploy-dev.yml
-git commit -m "ci: remove deploy-dev, promotion goes through Jenkins"
-git pull --rebase origin main
-git push origin main
-```
-
-If a file cannot be removed because it is open or synced by OneDrive, close the editor, delete it with `Remove-Item`, and stage the deletion with `git add`.
-
-### 10. Push rejected: "fetch first"
-
-**Symptom:** `! [rejected] main -> main (fetch first)`.
-
-**Cause:** Jenkins committed `chore(dev): promote image ...` to `main` after your last pull.
-
-**Fix:** rebase your commit on top of the remote, then push. Do not use `--force`, because that would delete Jenkins' commit.
-
-```powershell
-git pull --rebase origin main
-git push origin main
-```
-
-### 11. ECR rejects a re-run
-
-**Symptom:** `tag already exists` when pushing.
-
-**Cause:** the ECR repositories use **immutable** tags. A tag is named after the commit, so re-running an old commit produces the same tag.
-
-**Fix:** push a new commit. Re-running a job on the same commit does not work.
-
-### 12. Trivy fails on a real vulnerability
-
-**Symptom:** the scan step shows rows with `CRITICAL`.
-
-**Fix:** read the Library and Fixed Version columns.
-
-- If the package is in the base OS, rebuild on a newer base image (`--pull` is already set).
-- If the package is in `node_modules`, run `npm audit fix` in `backend/` (or `frontend/`) and commit `package-lock.json`.
-
-### 13. Jenkins login and setup
-
-| Symptom | Cause | Fix |
+## Run it on AWS
+Follow the weekly guides in order. Each one ends with a checkpoint.
+1. [Week 4: Terraform builds the cluster](docs/week4.md)
+2. [Week 5: Helm and ArgoCD deploy the app](docs/week5.md)
+3. [Week 6: GitHub Actions, Jenkins and pull requests](docs/week6.md)
+4. [Week 7: Datadog, secrets from AWS, canary releases](docs/week7.md)
+
+**Cost:** an EKS cluster with two nodes and a NAT gateway costs roughly $5 to $8 a day. Run `terraform destroy` in `terraform/envs/dev` when you stop.
+
+## Decisions
+The reasoning behind the big choices is in [docs/adr](docs/adr). Start with [ADR 0001](docs/adr/0001-eks-over-ecs.md).
+
+## Operations
+- [Runbooks](docs/runbooks): what to do when an alert fires, a deploy fails, or a scan job breaks.
+- Datadog dashboard and monitors: `gitops/platform/datadog/`.
+
+## Security
+- No AWS access keys are stored. GitHub Actions and the pods use short-lived roles.
+- Secrets live in AWS Secrets Manager, and are copied into the cluster by External Secrets.
+- The AI only advises. It has no AWS access, and AWS names and tags are treated as data, not instructions.
+- Pull requests from the app only add a runbook file. Nothing changes in AWS until a person applies it.
+
+## Status
+| Week | Topic | Status |
 |---|---|---|
-| `Compose file ... docker-compose.yml is invalid` | The file is named `docker-compose.yaml` | Use `-f jenkins/docker-compose.yaml` |
-| `initialAdminPassword: No such file or directory` | Setup was already finished | Sign in with your admin user, or reset (below) |
-| `Invalid username or password` | No account matches | Reset Jenkins (below) |
+| 1 | Dashboard, auth, Docker Compose | Done |
+| 2 | Real AWS cost data, waste scanners, savings | Done |
+| 3 | Claude: explain, rank, chat | Done |
+| 4 | Terraform: VPC, EKS, ECR, SQS, IAM | Done |
+| 5 | Helm chart and ArgoCD | Done |
+| 6 | GitHub Actions, Jenkins promotion, pull requests | Done |
+| 7 | Datadog, secrets from AWS, canary releases | In progress |
+| 8 | Documentation and polish | Done |
 
-Reset Jenkins. This deletes the Jenkins job and credentials, not the repo:
+## Demo
+See [docs/demo-script.md](docs/demo-script.md) for a five-minute walkthrough.
 
-```powershell
-docker compose -f jenkins/docker-compose.yaml down -v
-docker compose -f jenkins/docker-compose.yaml up -d
-docker compose -f jenkins/docker-compose.yaml exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
-```
-
-### 14. Jenkins build fails with `IMAGE_TAG '' is not valid`
-
-**Cause:** the first run has no parameters yet.
-
-**Fix:** run **Build with Parameters** and enter a tag that exists in ECR, such as `sha-8baac83`. Do not promote before the CI push succeeds, or ArgoCD will try to pull an image that does not exist.
-
-### 15. Node.js 20 deprecation warning
-
-**Symptom:** `Node.js 20 is deprecated ... actions/checkout@v4`.
-
-**Fix:** this is a warning, not an error. To remove it, change `actions/checkout@v4` to `@v5` in `ci.yml` after checking the action's README.
-
-## Verify Week 7
-
-```powershell
-kubectl -n argocd get applications
-kubectl -n external-secrets get pods
-kubectl -n argo-rollouts get pods
-kubectl -n costpilot get externalsecret costpilot-secrets
-kubectl -n costpilot get rollout backend
-kubectl -n costpilot get analysisrun
-kubectl -n datadog get pods
-```
-
-Expected: every application `Synced` and `Healthy`, the ExternalSecret shows `SecretSynced`, and the rollout reaches `Healthy` with the promoted tag.
-
-**Result (verified):** all applications Synced and Healthy, ExternalSecret SecretSynced, backend rollout Healthy with tag `<your tag>`, Datadog metrics visible for `costpilot_http_requests_total`.
-
-## Commands explained
-
-| Command | What it does |
-|---|---|
-| `cmd /c "... > file"` | Runs the command through `cmd`, so the output is plain UTF-8 |
-| `Get-Content file -TotalCount 3` | Shows the first lines of a file |
-| `Expand-Archive` | Unzips a file |
-| `helm template` | Renders the chart to plain YAML without installing anything |
-| `kubeconform -strict` | Rejects unknown fields |
-| `-ignore-missing-schemas` | Skips resources that have no schema, instead of failing |
-| `-schema-location` | Adds the CRD catalog so Rollouts and ExternalSecrets are checked |
-| `docker run aquasec/trivy:0.58.1 image` | Scans a local image for vulnerabilities |
-| `--exit-code 1` | Fails the step when a finding matches |
-| `aws cloudtrail lookup-events` | Shows why AWS denied a role assumption |
-| `terraform output -raw` | Prints one output value with no quotes |
-| `git pull --rebase origin main` | Puts your commits on top of the remote history |
-| `git rm` | Stages a file deletion |
-| `docker compose ... down -v` | Stops the containers and deletes their volumes |
-
-## Known troubleshooting (from docs/week7.md)
-
-| Problem | Fix |
-|---|---|
-| ExternalSecret `AccessDenied` | Check the role ARN in `external-secrets.yaml` and the policy in `terraform/modules/app-secrets` |
-| ClusterSecretStore `InvalidProviderConfig` | The service account has no role annotation. Check ArgoCD has synced the platform app |
-| Costpilot app `OutOfSync` with "no matches for kind Rollout" | Install `argo-rollouts` before the app |
-| Datadog shows no `costpilot_*` metrics | Generate traffic, wait five minutes, check the openmetrics check in `agent status` |
-
----
-
-# Running the project
-
-## Services and URLs
-
-| Service | Port | URL | Notes |
-|---|---|---|---|
-| Frontend (React, nginx) | 8080 | http://localhost:8080 | The app you open in the browser |
-| Frontend dev server (Vite) | 5173 | http://localhost:5173 | Only when running without Docker |
-| Backend (Express API) | 5000 | http://localhost:5000 | Health check: http://localhost:5000/health |
-| MongoDB | 27017 | `mongodb://localhost:27017/costpilot` | See the Database section for Docker |
-| Jenkins | 8085 | http://localhost:8085 | Promotion step only (Week 6) |
-| Claude API | 443 | https://api.anthropic.com | Called by the backend only, and only when a key is set |
-
-```
-Browser -> Frontend :8080 (nginx) -> /api/* proxied to Backend :5000 -> MongoDB :27017
-                                                                     -> Claude API (optional)
-```
-
-In Docker, containers reach each other by service name (`backend`, `mongo`), so the backend uses `mongodb://mongo:27017/costpilot`. From your own machine, use `localhost`.
-
-## Run with Docker (recommended)
-
-Requires Docker Desktop.
-
-```powershell
-copy .env.example .env        # macOS/Linux: cp .env.example .env
-docker compose up -d --build
-docker compose ps             # frontend, backend and mongo should all be Up
-```
-
-Open http://localhost:8080, choose **Create an account** (password 8+ characters) and sign in. Sample data and sample AI answers are used by default, so no AWS account or API key is needed.
-
-```powershell
-docker compose logs backend --tail 30   # backend errors
-docker compose down                     # stop, keeps database data
-docker compose down -v                  # stop and delete database data
-docker compose up -d --build frontend   # rebuild one service after a code change
-```
-
-## Run without Docker (for development)
-
-Needs Node.js 20+ and MongoDB.
-
-**1. Database**
-
-```powershell
-docker run -d --name costpilot-mongo -p 27017:27017 mongo:7
-```
-
-**2. Backend**: create `backend/.env`:
-
-```
-PORT=5000
-MONGO_URI=mongodb://localhost:27017/costpilot
-JWT_SECRET=change-me-to-a-long-random-string
-COST_SOURCE=mock
-ANTHROPIC_API_KEY=
-```
-
-```powershell
-cd backend
-npm install
-npm run dev      # expect "MongoDB connected" and "API listening on :5000 (cost source: mock, ai: mock)"
-```
-
-**3. Frontend** (second terminal):
-
-```powershell
-cd frontend
-npm install
-npm run dev      # http://localhost:5173
-```
-
-The Vite dev server does not forward `/api` by default. Add this to `frontend/vite.config.js`:
-
-```js
-export default defineConfig({
-  plugins: [react()],
-  server: { proxy: { '/api': 'http://localhost:5000' } },
-})
-```
-
-## Database
-
-MongoDB 7, database name `costpilot`.
-
-| Collection | Purpose | Added in |
-|---|---|---|
-| `users` | Accounts (email, bcrypt hash, role) | Week 1 |
-| `recommendations` | Scan findings with savings estimate, status and AI ranking | Week 2, extended in Week 3 |
-| `costcaches` | Cached Cost Explorer responses | Week 2 |
-| `aiusages` | AI calls and tokens per user per day | Week 3 |
-| `aicaches` | Saved explanations, expire after 7 days | Week 3 |
-| `chatmessages` | Ask AI chat history per user | Week 3 |
-
-| Where you run | Connection string |
-|---|---|
-| Backend in Docker Compose | `mongodb://mongo:27017/costpilot` |
-| Backend on your machine | `mongodb://localhost:27017/costpilot` |
-
-Docker Compose does not publish port 27017. To connect with MongoDB Compass, add `ports: ["27017:27017"]` to the `mongo` service, run `docker compose up -d`, then connect to `mongodb://localhost:27017/costpilot`.
-
-Inspect data without extra tools:
-
-```powershell
-docker compose exec mongo mongosh costpilot
-```
-```js
-show collections
-db.users.find({}, { email: 1, role: 1 })
-db.recommendations.countDocuments()
-db.aiusages.find()
-```
-
-Data lives in the `mongo-data` Docker volume and survives `docker compose down`.
-
-## Configuration
-
-Copy `.env.example` to `.env`. Never commit `.env`.
-
-| Variable | Default | Description |
-|---|---|---|
-| `JWT_SECRET` | dev value | Long random string used to sign login tokens. Change it. |
-| `MONGO_URI` | `mongodb://mongo:27017/costpilot` | MongoDB connection string |
-| `COST_SOURCE` | `mock` | `mock` for sample data, `aws` for real data |
-| `CACHE_HOURS` | `24` | How long to cache Cost Explorer results |
-| `AWS_REGION` | `ap-south-1` | Region for resource scans |
-| `AWS_ACCESS_KEY_ID` | empty | Only needed when `COST_SOURCE=aws` |
-| `AWS_SECRET_ACCESS_KEY` | empty | Only needed when `COST_SOURCE=aws` |
-| `ANTHROPIC_API_KEY` | empty | Empty = free sample AI answers. Set it to use Claude. |
-| `ANTHROPIC_MODEL` | `claude-haiku-5-5` | Claude model used for AI features |
-| `AI_MODE` | not set | Set to `mock` to force sample answers even when a key is set |
-| `AI_DAILY_LIMIT` | `30` | Max AI requests per user per day |
-| `AI_PRICE_INPUT_PER_MTOK` | empty | USD per million input tokens, from the Anthropic pricing page |
-| `AI_PRICE_OUTPUT_PER_MTOK` | empty | USD per million output tokens. Set both prices to see an estimated daily cost |
-
-## Tests
-
-```powershell
-cd backend
-npm test        # anomaly, Cost Explorer, scanners and AI tests
-```
-
-With the containers running, check the API end to end:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test.ps1         # Weeks 1 and 2
-powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test-week3.ps1   # Week 3 (AI)
-```
-
-For Terraform, check the code without creating anything:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\tf-validate.ps1
-```
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `no configuration file provided: not found` | Run the command from the project root, where `docker-compose.yaml` lives |
-| Backend keeps restarting | `docker compose logs backend`. File names are case sensitive in Linux containers (`ec2Idle.js`, not `ec2idle.js`) |
-| "Request failed." on every tab | Backend is down or you are not signed in. Check `docker compose ps` |
-| Sent back to sign-in | Token expired or from an older version. Clear site data and register again |
-| Code change not visible | The frontend is built into the image. Rebuild it and hard refresh (Ctrl + F5) |
-| Top button does nothing | The page is too short to scroll. Try Overview or Calendar |
-| "The Claude API key was rejected" | Check `ANTHROPIC_API_KEY` in `.env`, then `docker compose up -d --build backend` |
-| "Claude could not run this request" | `ANTHROPIC_MODEL` is not a valid model name |
-| "Claude is rate limiting requests" | Wait a minute and try again |
-| "You have used all 30 AI requests" | Wait for midnight UTC or raise `AI_DAILY_LIMIT` |
-| "There is nothing to rank yet" | Run **Scan now** on the Savings tab first |
-| AI answers say "sample" | No API key is set. Add `ANTHROPIC_API_KEY` to use Claude |
-| `.env` change not picked up | Recreate the backend: `docker compose up -d --build backend` |
-| `terraform` or `aws` is not recognized | Close PowerShell and open it again after `winget install` |
-| `No valid credential sources found` | Run `aws configure` again, then `aws sts get-caller-identity` |
-| `terraform init` asks for backend settings or fails | Run it from `terraform\envs\dev` with `-backend-config=backend.hcl`, and check that `backend.hcl` exists |
-| `backend.hcl` looks broken | Recreate it with `Out-File -Encoding ascii` as in Step 4 |
-| `UnauthorizedOperation` on apply | The AWS user is missing a permission. Read the error for the action name and add it |
-| `kubectl get nodes` times out | Your public IP changed. Update `api_allowed_cidrs` in `terraform.tfvars` and apply again |
-| Nodes show `NotReady` | Wait a few minutes after apply, then check again |
-| S3 bucket name already exists | Bucket names are global. Change the name variable and apply again |
-| `terraform destroy` hangs on the VPC | Delete leftover load balancers or network interfaces created by Kubernetes, then retry |
-| ECR login `400 Bad Request` | PowerShell's pipe corrupts the password. Use `cmd /c "aws ecr get-login-password ... \| docker login ..."` as in `push-images.ps1` |
-| `argument --region: expected one argument` | Script variables like `$Region` were pasted into the terminal. Run the `.ps1` file instead |
-| `timeout awaiting response headers` on `docker push` | Network timeout. Run `docker push` again, finished layers are skipped |
-| ArgoCD `app path does not exist`, Sync `Unknown` | The chart is not on GitHub or the path is wrong. Commit and push `costpilot-gitops/`, and use path `costpilot-gitops/charts/costpilot` |
-| Pods `InvalidImageName` | Image registry or tag is empty or still a placeholder. Fix `envs/dev/values.yaml`, then push |
-| Pods `ImagePullBackOff` | Wrong repo name or tag, or the node role lacks `AmazonEC2ContainerRegistryReadOnly`. Run `kubectl describe pod` |
-| Pods `CreateContainerConfigError` | The `costpilot-secrets` secret is missing. Create it as in Week 5, Step 3 |
-| Health stays `Progressing` | Pods are not ready yet. Wait, then check `kubectl -n costpilot logs deploy/backend` |
-| `kubectl` times out | Your public IP changed. Update `api_allowed_cidrs` and run `terraform apply` |
-| `tfplan` shows in `git status` | `git rm --cached terraform/envs/dev/tfplan` and add `tfplan` to `.gitignore` |
-| Push rejected, "fetch first" | Run `git pull --rebase origin main`, then push again. See Week 7, error 10 |
-| ECR "tag already exists" | Tags are immutable. Push a new commit instead of re-running an old one |
-
-## Project structure
-
-```
-backend/          Express API, scanners, AI service, anomaly detection, daily scan job (src/jobs), tests
-frontend/         React + Vite app, served by nginx in Docker
-costpilot-gitops/ Helm chart (charts/costpilot), ArgoCD apps, platform config, per-environment values, remediations
-.github/          GitHub Actions: CI (ci.yml) only
-jenkins/          Jenkins image and compose file for the promotion step (Week 6)
-Jenkinsfile       Jenkins pipeline: input check, tag promotion (Week 6)
-docs/             Architecture notes, IAM policy, weekly notes (week2.md to week7.md)
-scripts/          Smoke tests, tf-validate.ps1, push-images.ps1, put-secrets.ps1, datadog-setup.ps1
-terraform/        Infrastructure code: bootstrap/ (remote state), envs/dev/ and envs/prod/,
-                  modules/ (VPC, EKS, ECR, IAM, S3, SQS, budget, github-oidc, app-secrets)
-```
+## Author
+Yash Deshpande. Built as a portfolio project for DevOps and platform roles.
