@@ -1,9 +1,9 @@
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Counter, Histogram, registry, renderMetrics, resetMetrics } from '../services/metrics.js';
 import { metricsMiddleware } from '../middleware/metrics.js';
 
-test.beforeEach(() => resetMetrics());
+beforeEach(() => resetMetrics());
 
 test('counter renders HELP, TYPE and labelled values', () => {
   const c = new Counter('demo_total', 'Demo counter.', ['route']);
