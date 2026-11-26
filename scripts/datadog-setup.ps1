@@ -8,11 +8,11 @@ if (-not $env:DD_API_KEY -or -not $env:DD_APP_KEY) { throw "Set DD_API_KEY and D
 $headers = @{ "DD-API-KEY" = $env:DD_API_KEY; "DD-APPLICATION-KEY" = $env:DD_APP_KEY; "Content-Type" = "application/json" }
 $base = "https://api.$Site/api/v1"
 
-$dash = Get-Content -Raw "gitops/platform/datadog/dashboards/costpilot-overview.json"
+$dash = Get-Content -Raw "costpilot-gitops/platform/datadog/dashboards/costpilot-overview.json"
 $r = Invoke-RestMethod -Method Post -Uri "$base/dashboard" -Headers $headers -Body $dash
 Write-Host "Dashboard created: https://app.$Site/dashboard/$($r.id)" -ForegroundColor Green
 
-foreach ($file in Get-ChildItem "gitops/platform/datadog/monitors/*.json") {
+foreach ($file in Get-ChildItem "costpilot-gitops/platform/datadog/monitors/*.json") {
   $m = Invoke-RestMethod -Method Post -Uri "$base/monitor" -Headers $headers -Body (Get-Content -Raw $file.FullName)
   Write-Host "Monitor created: $($m.name) (id $($m.id))"
 }
