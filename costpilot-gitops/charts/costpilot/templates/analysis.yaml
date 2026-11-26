@@ -14,7 +14,7 @@ spec:
       failureLimit: 1
       provider:
         web:
-          url: "http://{{ .Values.backend.name }}-canary:{{ .Values.backend.port }}/health"
+                    url: "http://{{ .Values.backend.name }}-canary.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.backend.port }}/health"
           timeoutSeconds: 5
           jsonPath: "{$.status}"
       successCondition: result[0] == "ok"
