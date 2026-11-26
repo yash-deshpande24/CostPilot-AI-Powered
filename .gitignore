@@ -16,3 +16,4 @@ terraform/**/terraform.tfvars
 terraform/**/*.tfstate*
 rendered-*.yaml
 kubeconform.exe
+gitops_week5_local/
