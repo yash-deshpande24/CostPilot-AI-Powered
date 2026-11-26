@@ -2,7 +2,7 @@
 
 image:
   registry: "208805233492.dkr.ecr.ap-south-1.amazonaws.com"
-  tag: "sha-e6cd822"
+  tag: "sha-db73d49"
 
 serviceAccounts:
   backend:
