@@ -35,11 +35,12 @@ data "aws_iam_policy_document" "assume" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
-    # Only runs on this one branch of this one repository may use the role. Pull requests cannot.
+    # Only runs on the main branch of this repository may use the role. Pull requests cannot.
+    # GitHub includes the owner ID (155445472) and repo ID (1465199474) in the sub claim.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/${var.branch}"]
+      values   = ["repo:yash-deshpande24@155445472/CostPilot-AI-Powered@1465199474:ref:refs/heads/main"]
     }
   }
 }
@@ -76,4 +77,3 @@ resource "aws_iam_role_policy" "ecr_push" {
   role   = aws_iam_role.ci.id
   policy = data.aws_iam_policy_document.ecr_push.json
 }
-
