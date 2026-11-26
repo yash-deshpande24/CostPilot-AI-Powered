@@ -3,13 +3,17 @@
 param([string]$Secret = "costpilot-dev/datadog", [string]$Region = "ap-south-1")
 $ErrorActionPreference = "Stop"
 
-function Read-Plain($prompt) {
-  $v = Read-Host $prompt -AsSecureString
-  $p = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($v))
-  if (-not $p) { throw "This value is required." }
-  return $p
+function Read-Required($prompt) {
+  $value = Read-Host $prompt
+  if (-not $value) { throw "This value is required." }
+  return $value
 }
-$payload = [ordered]@{ "api-key" = (Read-Plain "Datadog API key"); "app-key" = (Read-Plain "Datadog application key") }
+
+$payload = [ordered]@{
+  "api-key" = (Read-Required "Datadog API key")
+  "app-key" = (Read-Required "Datadog application key")
+}
+
 $tmp = [IO.Path]::GetTempFileName()
 try {
   ($payload | ConvertTo-Json -Compress) | Out-File -Encoding ascii -NoNewline $tmp

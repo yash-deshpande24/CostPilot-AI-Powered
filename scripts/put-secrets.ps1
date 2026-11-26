@@ -1,14 +1,12 @@
 # Stores the app's secrets in AWS Secrets Manager. Values are typed here and never written to the project.
 # Run from the project root:  powershell -ExecutionPolicy Bypass -File .\scripts\put-secrets.ps1
-# Requires: aws configure already done, and the Week 7 Terraform applied.
 param([string]$Secret = "costpilot-dev/app", [string]$Region = "ap-south-1")
 $ErrorActionPreference = "Stop"
 
 function Read-Plain($prompt, [switch]$Optional) {
-  $value = Read-Host $prompt -AsSecureString
-  $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($value))
-  if (-not $plain -and -not $Optional) { throw "This value is required." }
-  return $plain
+  $value = Read-Host $prompt
+  if (-not $value -and -not $Optional) { throw "This value is required." }
+  return $value
 }
 
 # Generate a strong JWT secret when the user just presses Enter.
@@ -18,7 +16,8 @@ if (-not $jwt) {
   [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   $jwt = [Convert]::ToBase64String($bytes)
 }
-$mongo = Read-Plain "MONGO_URI (for the in-cluster database: mongodb://mongo:27017/costpilot)"
+$mongo = Read-Plain "MONGO_URI (press Enter for mongodb://mongo:27017/costpilot)" -Optional
+if (-not $mongo) { $mongo = "mongodb://mongo:27017/costpilot" }
 $anthropic = Read-Plain "ANTHROPIC_API_KEY (optional, Enter to skip)" -Optional
 $github = Read-Plain "GITHUB_TOKEN for Open PR (optional, Enter to skip)" -Optional
 
