@@ -97,3 +97,12 @@ module "budget" {
   monthly_limit_usd = var.monthly_budget_usd
   alert_email       = var.alert_email
 }
+
+# Week 7: secrets in AWS Secrets Manager, read by External Secrets Operator through IRSA.
+module "app_secrets" {
+  source               = "../../modules/app-secrets"
+  name                 = local.name
+  oidc_provider_arn    = module.eks.oidc_provider_arn
+  oidc_provider_url    = module.eks.oidc_provider_url
+  recovery_window_days = var.secret_recovery_window_days
+}

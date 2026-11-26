@@ -1,0 +1,30 @@
+# Installs the Datadog agent (one per node) and the cluster agent. Values come from this repo.
+# Apply once: kubectl apply -f gitops/platform/apps/datadog.yaml
+# VERIFY the version first: helm search repo datadog/datadog --versions
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: datadog
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://helm.datadoghq.com
+      chart: datadog
+      targetRevision: "3.160.2"
+      helm:
+        valueFiles:
+          - $values/gitops/platform/datadog/values.yaml
+    - repoURL: https://github.com/yash-deshpande24/CostPilot-AI-Powered.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: datadog
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

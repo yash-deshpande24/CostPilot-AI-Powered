@@ -42,8 +42,15 @@ config:
   githubBaseBranch: main
 
 secrets:
-  # Created by hand and never stored in Git. Keys: JWT_SECRET, MONGO_URI, and optionally ANTHROPIC_API_KEY.
+  # Week 7: when fromAws is true, External Secrets builds this Kubernetes secret from AWS Secrets Manager.
+  # When false, you create it by hand (Week 5 and 6) and it is never stored in Git.
   existingSecret: costpilot-secrets
+  fromAws: false
+  awsSecretKey: "costpilot-dev/app"
+
+rollout:
+  canaryWeight: 50 # percent of pods running the new version during the check
+  pauseSeconds: "30s"
 
 mongodb:
   # A throwaway MongoDB inside the cluster for dev. Its data is lost whenever the pod restarts.

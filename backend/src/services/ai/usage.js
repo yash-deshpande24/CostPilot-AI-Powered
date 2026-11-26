@@ -1,4 +1,5 @@
 import AiUsage from '../../models/AiUsage.js';
+import { registry } from '../metrics.js';
 import { dailyLimit } from './config.js';
 import { httpError } from './errors.js';
 
@@ -18,6 +19,8 @@ export async function consumeCall(userId) {
 }
 
 export async function addTokens(userId, { input, output }) {
+  registry.aiTokens.inc({ direction: 'input' }, input);
+  registry.aiTokens.inc({ direction: 'output' }, output);
   await AiUsage.updateOne({ userId, date: today() }, { $inc: { inputTokens: input, outputTokens: output } });
 }
 
@@ -33,4 +36,3 @@ export function estimateCostUsd({ inputTokens, outputTokens }) {
   if (!pin || !pout) return null;
   return Math.round(((inputTokens * pin + outputTokens * pout) / 1e6) * 10000) / 10000;
 }
-    

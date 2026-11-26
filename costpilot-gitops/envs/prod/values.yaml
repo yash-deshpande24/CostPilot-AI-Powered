@@ -1,6 +1,5 @@
 # Settings for the production environment.
 # Jenkins writes the image tag here when you promote to prod and approve it.
-# Nothing deploys from this file until the prod cluster exists and costpilot-prod.yaml is applied there.
 
 image:
   registry: "208805233492.dkr.ecr.ap-south-1.amazonaws.com"
@@ -23,4 +22,12 @@ config:
 
 mongodb:
   internal:
-    enabled: false # use MongoDB Atlas: put its connection string in the secret as MONGO_URI
+    enabled: false # use MongoDB Atlas: put its connection string in Secrets Manager as MONGO_URI
+
+secrets:
+  fromAws: true
+  awsSecretKey: "costpilot-prod/app"
+
+rollout:
+  canaryWeight: 25
+  pauseSeconds: "120s"

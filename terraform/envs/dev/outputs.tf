@@ -36,3 +36,16 @@ output "github_ci_role_arn" {
   description = "Set this as the AWS_ROLE_ARN variable in GitHub Actions."
   value       = var.create_ecr ? module.github_oidc[0].role_arn : null
 }
+
+output "app_secret_name" {
+  description = "Put the app's keys in this secret with: aws secretsmanager put-secret-value"
+  value       = module.app_secrets.app_secret_name
+}
+
+output "datadog_secret_name" {
+  value = module.app_secrets.datadog_secret_name
+}
+
+output "eso_role_arn" {
+  value = module.app_secrets.eso_role_arn
+}

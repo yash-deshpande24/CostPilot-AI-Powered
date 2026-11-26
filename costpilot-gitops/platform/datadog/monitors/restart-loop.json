@@ -1,0 +1,12 @@
+{
+  "name": "CostPilot: pods restarting repeatedly",
+  "type": "query alert",
+  "query": "sum(last_15m):sum:kubernetes.containers.restarts{kube_namespace:costpilot} by {kube_container_name}.as_count() > 3",
+  "message": "A CostPilot container restarted more than 3 times in 15 minutes. Usually a bad MONGO_URI or a missing secret.\n@your.email@example.com",
+  "tags": ["project:costpilot", "env:dev"],
+  "options": {
+    "thresholds": { "critical": 3 },
+    "notify_no_data": false
+  },
+  "priority": 2
+}

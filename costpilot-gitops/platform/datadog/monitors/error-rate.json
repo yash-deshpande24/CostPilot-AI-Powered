@@ -1,0 +1,13 @@
+{
+  "name": "CostPilot: API error rate above 5%",
+  "type": "query alert",
+  "query": "sum(last_10m):sum:costpilot_http_requests_total{status_class:5xx}.as_rate() / sum:costpilot_http_requests_total{*}.as_rate() * 100 > 5",
+  "message": "The CostPilot API is returning errors. Check the latest Argo Rollouts analysis and pod logs.\n\nRunbook: docs/week7.md, section 'When the error alert fires'.\n@your.email@example.com",
+  "tags": ["project:costpilot", "env:dev"],
+  "options": {
+    "thresholds": { "critical": 5, "warning": 2 },
+    "notify_no_data": false,
+    "require_full_window": false
+  },
+  "priority": 2
+}

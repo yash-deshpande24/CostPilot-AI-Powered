@@ -1,0 +1,20 @@
+# Checks the new version before the canary is promoted. It calls /health on the canary and needs
+# status "ok" three times in a row. Two failures in a row roll the release back.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: backend-health
+  labels:
+    {{- include "costpilot.labels" . | nindent 4 }}
+spec:
+  metrics:
+    - name: health
+      interval: 20s
+      count: 3
+      failureLimit: 1
+      provider:
+        web:
+          url: "http://{{ .Values.backend.name }}-canary:{{ .Values.backend.port }}/health"
+          timeoutSeconds: 5
+          jsonPath: "{$.status}"
+      successCondition: result[0] == "ok"

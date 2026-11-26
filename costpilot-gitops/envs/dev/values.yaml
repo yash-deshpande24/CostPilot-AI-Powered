@@ -2,7 +2,7 @@
 
 image:
   registry: "208805233492.dkr.ecr.ap-south-1.amazonaws.com"
-  tag: "20261124-112948"
+  tag: "CHANGE_ME" # Jenkins writes this when you promote
 
 serviceAccounts:
   backend:
@@ -13,15 +13,9 @@ serviceAccounts:
 config:
   costSource: mock # change to aws to read your real bill through the pod's IAM role
 
-# Week 6: pull request settings for this environment.
-# Add GITHUB_TOKEN to the costpilot-secrets secret to switch from preview to real PRs.
-pr:
-  mode: ""
-  repo: yash-deshpande24/CostPilot-AI-Powered
-  baseBranch: main
-  dir: costpilot-gitops/remediations
-  dailyLimit: 10
-
 mongodb:
   internal:
     enabled: true # throwaway database. Data is lost when the pod restarts.
+
+secrets:
+  fromAws: false # set to true after the Week 7 steps put your keys in Secrets Manager

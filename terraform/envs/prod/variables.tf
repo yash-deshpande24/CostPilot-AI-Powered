@@ -123,3 +123,9 @@ variable "create_github_oidc_provider" {
   type        = bool
   default     = true
 }
+
+variable "secret_recovery_window_days" {
+  description = "Days a deleted Secrets Manager secret can be restored. 0 = deleted immediately (dev only)."
+  type        = number
+  default     = 30
+}

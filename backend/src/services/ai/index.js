@@ -5,6 +5,7 @@ import { buildBillSummary, buildDayDetail } from './context.js';
 import { EXPLAIN_TOOL, RANK_TOOL, explainSystem, rankSystem, chatSystem } from './prompts.js';
 import { mockExplain, mockRank, mockChat } from './mock.js';
 import { consumeCall, addTokens } from './usage.js';
+import { registry } from '../metrics.js';
 import { httpError, friendlyAiError } from './errors.js';
 
 const RISK = ['low', 'medium', 'high'];
@@ -37,8 +38,10 @@ async function viaClaude(userId, args) {
   try {
     const res = await ask(args);
     await addTokens(userId, res.usage);
+    registry.aiCalls.inc({ mode: 'claude', result: 'ok' });
     return res;
   } catch (e) {
+    registry.aiCalls.inc({ mode: 'claude', result: 'error' });
     throw friendlyAiError(e);
   }
 }

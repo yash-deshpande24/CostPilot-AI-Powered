@@ -1,0 +1,30 @@
+# Datadog agent settings. Sized for a small dev cluster (2 vCPU / 8 GB nodes).
+datadog:
+  site: datadoghq.com # use datadoghq.eu if your Datadog account is in the EU
+  clusterName: costpilot-dev
+  apiKeyExistingSecret: datadog-secret
+  appKeyExistingSecret: datadog-secret
+  logs:
+    enabled: true
+    containerCollectAll: false # only collect logs from pods that opt in, to keep costs down
+  apm:
+    portEnabled: true
+  processAgent:
+    processCollection: false
+  kubeStateMetricsCore:
+    enabled: true
+  tags:
+    - "project:costpilot"
+    - "env:dev"
+
+clusterAgent:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+agents:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }

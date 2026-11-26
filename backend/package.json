@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test src/tests/anomaly.test.js src/tests/awsCost.test.js src/tests/scanners.test.js src/tests/ai.test.js src/tests/scanJob.test.js src/tests/pr.test.js src/tests/smoke.test.js"
+    "test": "node --test src/tests/anomaly.test.js src/tests/awsCost.test.js src/tests/scanners.test.js src/tests/ai.test.js src/tests/scanJob.test.js src/tests/pr.test.js src/tests/smoke.test.js src/tests/metrics.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.5.0",
