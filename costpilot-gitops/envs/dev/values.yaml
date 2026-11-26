@@ -2,7 +2,7 @@
 
 image:
   registry: "208805233492.dkr.ecr.ap-south-1.amazonaws.com"
-  tag: "CHANGE_ME" # Jenkins writes this when you promote
+  tag: "20261124-112948" # Jenkins writes this when you promote
 
 serviceAccounts:
   backend:
