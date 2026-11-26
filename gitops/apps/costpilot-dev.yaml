@@ -12,7 +12,7 @@ spec:
   source:
     repoURL: https://github.com/yash-deshpande24/CostPilot-AI-Powered.git
     targetRevision: main
-    path: costpilot-gitops/charts/costpilot
+    path: gitops/charts/costpilot
     helm:
       valueFiles:
         - ../../envs/dev/values.yaml
