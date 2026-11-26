@@ -107,16 +107,21 @@ jobs:
         image: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
+
       - name: Build
         run: docker build --pull -t "costpilot/${{ matrix.image }}:ci" "./${{ matrix.image }}"
+
+      # Runs the official Trivy image directly. The mounted Docker socket lets Trivy
+      # read the image that was just built on this runner.
       - name: Scan for critical vulnerabilities
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          image-ref: costpilot/${{ matrix.image }}:ci
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.58.1 image \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            costpilot/${{ matrix.image }}:ci
 
   publish:
     name: Push images to ECR
